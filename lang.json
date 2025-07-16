@@ -1,0 +1,186 @@
+{
+  "login_submit": {
+    "en": "Sign in",
+    "hu": "Belépés"
+  },
+  "registration_submit": {
+    "en": "Sign up",
+    "hu": "Regisztráció"
+  },
+  "login_email": {
+    "en": "Email",
+    "hu": "Email"
+  },
+  "login_password": {
+    "en": "Password",
+    "hu": "Jelszó"
+  },
+  "register_email": {
+    "en": "Email",
+    "hu": "Email"
+  },
+  "register_password": {
+    "en": "Password",
+    "hu": "Jelszó"
+  },
+  "register_confirm": {
+    "en": "Confirm Password",
+    "hu": "Jelszó megerősítése"
+  },
+  "registration_email_notice": {
+    "en": "Please enter a valid email address to use the system.",
+    "hu": "Kérjük, valós email címet adjon meg – csak akkor tudja használni a rendszert, ha az emailt megerősíti."
+  },
+  "registration_password_notice": {
+    "en": "Password must be at least 8 characters and include upper, lower case letters and numbers.",
+    "hu": "A jelszónak legalább 8 karakter hosszúnak kell lennie, és tartalmaznia kell kis- és nagybetűt, valamint számot."
+  },
+  "registration_oauth_notice": {
+    "en": "You can also register with one of the following providers:",
+    "hu": "Egy gombnyomással is regisztrálhat a következő szolgáltatók valamelyikével:"
+  },
+  "verify_email_notice": {
+    "en": "Please enter the verification code sent to your email address.",
+    "hu": "Kérjük, adja meg a visszaigazoló kódot, amelyet az email címére küldtünk."
+  },
+  "login_with_provider": {
+    "en": "Login with {provider}",
+    "hu": "Bejelentkezés {provider}-lal"
+  },
+  "registration_with_provider": {
+    "en": "Register with {provider}",
+    "hu": "Regisztráció {provider} felhasználásával"
+  },
+  "logout": {
+    "en": "Logout",
+    "hu": "Kilépés"
+  },
+  "login_title": {
+    "en": "Sign in",
+    "hu": "Bejelentkezés"
+  },
+  "success_title": {
+    "en": "Success",
+    "hu": "Siker"
+  },
+  "error_title": {
+    "en": "Error",
+    "hu": "Hiba"
+  },
+  "registration_title": {
+    "en": "Sign up",
+    "hu": "Regisztráció"
+  },
+  "verify_title": {
+    "en": "Email Verification",
+    "hu": "Email megerősítése"
+  },
+  "verify_code_title": {
+    "en": "Verify Email",
+    "hu": "Email megerősítése"
+  },
+  "verify_code_label": {
+    "en": "Verification Code",
+    "hu": "Megerősítő kód"
+  },
+  "verify_code_hint": {
+    "en": "Enter the 4-digit code sent to your email address.",
+    "hu": "Írja be a megadott email címre küldött 4 jegyű kódot."
+  },
+  "verify_code_submit": {
+    "en": "Verify",
+    "hu": "Megerősítés"
+  },
+  "verify_submit": {
+    "en": "Send code",
+    "hu": "Kód elküldése"
+  },
+  "processing": {
+    "en": "Processing...",
+    "hu": "Feldolgozás..."
+  },
+  "close": {
+    "en": "Close",
+    "hu": "Bezárás"
+  },
+  "login_with_provider_google": {
+    "en": "Login with Google",
+    "hu": "Bejelentkezés Google-lal"
+  },
+  "login_with_provider_facebook": {
+    "en": "Login with Facebook",
+    "hu": "Bejelentkezés Facebook-kal"
+  },
+  "registration_with_provider_google": {
+    "en": "Register with Google",
+    "hu": "Regisztráció Google-lal"
+  },
+  "registration_with_provider_facebook": {
+    "en": "Register with Facebook",
+    "hu": "Regisztráció Facebook-kal"
+  },
+  "cant_login": {
+    "en": "Cannot login with the provided credentials.",
+    "hu": "A megadott adatokkal nem lehet bejelentkezni."
+  },
+  "missing_fields": {
+    "en": "Please fill in all fields.",
+    "hu": "Kérjük, töltse ki a mezőket."
+  },
+  "email_required": {
+    "en": "Email is required.",
+    "hu": "Az email cím megadása kötelező."
+  },
+  "email_exists": {
+    "en": "Email already exists.",
+    "hu": "Az email cím már létezik."
+  },
+  "email_invalid": {
+    "en": "Invalid email address.",
+    "hu": "Érvénytelen email cím."
+  },
+  "password_required": {
+    "en": "Password is required.",
+    "hu": "A jelszó megadása kötelező."
+  },
+  "password_too_short": {
+    "en": "Password is too short.",
+    "hu": "A jelszó túl rövid."
+  },
+  "password_mismatch": {
+    "en": "Passwords do not match.",
+    "hu": "A jelszavak nem egyeznek."
+  },
+  "password_invalid": {
+    "en": "The password must be at least 8 characters long and include upper and lower case letters, as well as a number.",
+    "hu": "A jelszónak legalább 8 karakter hosszúnak kell lennie, és tartalmaznia kell kis- és nagybetűt, valamint számot."
+  },
+  "verify_failed": {
+    "en": "Verification failed. If you used the link or code from the email, it may have expired. Please register again.",
+    "hu": "A megerősítés sikertelen. Ha az emailben kapott linket vagy kódot használta, akkor már lejárt a megerősítő kód. Kérjük regisztráljon újra."
+  },
+  "not_verified": {
+    "en": "Email not verified. Please check your email for the verification link sent to the address you provided during registration.",
+    "hu": "Email nincs megerősítve. A regisztráció során megadott email címre küldött emailben található linken tudja megerősíteni az email címét."
+  },
+  "registration_failed": {
+    "en": "Registration failed. Please try again.",
+    "hu": "A regisztráció sikertelen. Kérjük, próbálja újra."
+  },
+  "server_error": {
+    "en": "Server error occurred.",
+    "hu": "Szerverhiba történt."
+  },
+  "already_verified": {
+    "en": "Email already verified.",
+    "hu": "Email már megerősítve."
+  },
+  "verify_success": {
+    "en": "Email successfully verified. You can now log in.",
+    "hu": "Email sikeresen megerősítve. Most már bejelentkezhet."
+  },
+  "verify_subject": {
+    "en": "Email Verification",
+    "hu": "Email megerősítés"
+  }
+}

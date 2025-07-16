@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+	<meta charset="UTF-8">
+	<title>Regisztráció megerősítése</title>
+</head>
+<body style="font-family: sans-serif; background-color: #f8f9fa; padding: 20px; color: #212529;">
+	<div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
+		<h2 style="color: #007bff;">Regisztráció megerősítése</h2>
+
+		<p>Köszönjük, hogy regisztrált a <strong>{site_name}</strong> rendszerében.</p>
+
+		<p><strong>Az Ön megerősítő kódja:</strong></p>
+
+		<p style="font-size: 1.8em; font-weight: bold; background: #f1f3f5; padding: 12px 20px; text-align: center; border-radius: 6px;">
+			{regkey}
+		</p>
+
+		<p>Kérjük, írja be ezt a kódot a regisztrációs felületen a megerősítéshez.</p>
+
+		<p>Vagy használja az alábbi közvetlen megerősítő linket:</p>
+
+		<p style="text-align: center; margin-top: 25px;">
+			<a href="{verify_url}" style="display: inline-block; background: #007bff; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 5px; font-weight: bold;">
+				Regisztráció megerősítése most
+			</a>
+		</p>
+
+		<p style="font-size: 0.9em; color: #6c757d; margin-top: 40px;">Üdvözlettel,<br><br>--<br>A {site_name} csapata</p>
+	</div>
+</body>
+</html>
