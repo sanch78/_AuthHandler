@@ -76,21 +76,36 @@ class AuthHandler {
     }
 
 
-	setLang (code = 'en') {
+	/**
+     * Sets the current language code.
+     * @param {string} code - Optional language code (e.g. 'hu', 'en')
+     */
+    setLang (code = 'en') {
 
         this.langCode = code;
 
     }
 
 
-	getText (key, fallback = '') {
+	/**
+     * Returns a translated string for the given key and current language.
+     * @param {string} key
+     * @param {string} fallback
+     * @returns {string}
+     */
+    getText (key, fallback = '') {
 
         return this.langData[key]?.[this.langCode] || fallback;
 
     }
 
 
-	setLangData (langObject) {
+	/**
+     * Merges the given language object into the existing language data.
+     * Only overrides keys and languages that are provided.
+     * @param {Object} langObject - Partial language data to merge
+     */
+    setLangData (langObject) {
 
         if (typeof langObject !== 'object') return;
 
@@ -104,6 +119,10 @@ class AuthHandler {
     }
 
 
+    /**
+     * Sets the user token.
+     * @param {string|null} token - The user token (or null if not logged in)
+     */
     setUserToken (token) {
 
         this.userToken = token;
@@ -111,6 +130,10 @@ class AuthHandler {
     }
 
 
+    /**
+     * Checks if the user is logged in.
+     * @returns {boolean}
+     */
     isLoggedIn () {
 
         return !!this.userToken;
@@ -134,13 +157,15 @@ class AuthHandler {
         container.innerHTML = '';
 
         if (this.isLoggedIn()) {
-            const btn = this._createButton(this.getText('logout', 'Kilépés'), () => this.logout(), 'authhandler-trigger-logout-button');
+            const btn = this._createButton(this.getText('logout', 'Logout'), () => this.logout(), 'authhandler-trigger-logout-button');
             container.appendChild(btn);
         } else {
-            const loginBtn = this._createButton(this.getText('login_submit', 'Bejelentkezés'), () => this.login(), 'authhandler-trigger-login-button');
-            const regBtn = this._createButton(this.getText('registration_submit', 'Regisztráció'), () => this.registration(), 'authhandler-trigger-register-button');
+            const loginBtn = this._createButton(this.getText('login_submit', 'Sign in'), () => this.login(), 'authhandler-trigger-login-button');
+            const regBtn = this._createButton(this.getText('registration_submit', 'Sign up'), () => this.registration(), 'authhandler-trigger-register-button');
+            const resetBtn = this._createButton(this.getText('reset_submit', 'Reset password'), () => this.resetPassword(), 'authhandler-trigger-reset-button');
 
             container.appendChild(loginBtn);
+            container.appendChild(resetBtn);
             if (this.config.allowRegistration) {
                 container.appendChild(regBtn);
             }
@@ -172,6 +197,17 @@ class AuthHandler {
 
     }
 
+    /**
+     * Initiates the password reset process by rendering the reset form.
+     *
+     * @returns {void}
+     */
+    resetPassword () {
+
+        this._renderForm('reset1');
+
+    }
+
 
     /**
      * Logs out the current user by calling the logout endpoint,
@@ -199,11 +235,7 @@ class AuthHandler {
      */
     showFormFeedback (formType, result) {
 
-        const formSelector =
-            formType === 'login' ? '.authhandler-login-form' :
-            formType === 'registration' ? '.authhandler-registration-form' :
-            formType === 'verify' ? '.authhandler-verify-form' : null;
-
+        const formSelector = `.authhandler-${formType}-form`;
         const formEl = document.querySelector(formSelector);
         if (!formEl) return;
 
@@ -218,9 +250,10 @@ class AuthHandler {
         }
 
         let fieldIds = ['email', 'password'];
-        if (formType === 'verify') fieldIds = ['code'];
+        if (formType === 'verify' || formType === 'reset2') fieldIds = ['code'];
 
         fieldIds.forEach(fieldId => {
+
             const noticeWrap = formEl.querySelector(`[data-feedback-for="${fieldId}"]`);
             const p = noticeWrap?.querySelector('p');
 
@@ -230,25 +263,28 @@ class AuthHandler {
 
             if (hasError) {
                 const errorKey = result[fieldId];
-                p.textContent = this.getText(errorKey, 'Hiba történt.');
+                p.textContent = this.getText(errorKey, 'An error occurred.');
                 noticeWrap.classList.add('authhandler-error-notice', 'active');
 
                 if (formType === 'login') {
                     noticeWrap.style.display = 'block';
                 }
             } else {
-                if (formType === 'registration') {
-                    const defaultKey = `registration_${fieldId}_notice`;
+                if (formType === 'login') {
+                    if (!noticeWrap.hasAttribute('data-persistent')) {
+                        p.textContent = '';
+                    }
+                    noticeWrap.classList.remove('authhandler-error-notice', 'active');
+                    if (formType === 'login') {
+                        if (!noticeWrap.hasAttribute('data-persistent')) {
+                            noticeWrap.style.display = 'none';
+                        }
+                    }
+                } else {
+                    const defaultKey = `${formType}_${fieldId}_notice`;
                     p.textContent = this.getText(defaultKey, '');
                     noticeWrap.classList.remove('authhandler-error-notice');
                     noticeWrap.classList.add('active');
-                } else {
-                    p.textContent = '';
-                    noticeWrap.classList.remove('authhandler-error-notice', 'active');
-
-                    if (formType === 'login') {
-                        noticeWrap.style.display = 'none';
-                    }
                 }
             }
         });
@@ -256,6 +292,11 @@ class AuthHandler {
     }
 
 
+    /**
+     * Shows feedback (error or success message) in a modal.
+     * @param {object} result - The result object from the server
+     * @returns {void}
+     */
     showFeedback (result) {
 
         const modalId = 'authhandler-feedback-modal';
@@ -298,9 +339,13 @@ class AuthHandler {
     /* ----- PRIVATE METHODS ----- */
 
 
+	/**
+	 * Loads the language file.
+	 * @returns {Promise<void>}
+	 */
 	async _loadLang () {
 
-        const langUrl = this.modulePath + 'lang.json?seed=' + Date.now();
+        const langUrl = this.modulePath + 'lang.json?';
 
 		try {
 			const res = await fetch(langUrl);
@@ -315,161 +360,46 @@ class AuthHandler {
 
 
     /**
-     * Renders a form based on the given type and shows it inline or in a modal.
-     * Supported types: 'login', 'registration', 'verify'
+     * Renders and injects a form based on the type.
+     * Delegates actual form generation to helper methods.
      *
-     * @param {string} type - The form type ('login', 'registration', or 'verify')
-     * @returns {void}
+     * @param {string} type - The form type ('login', 'registration', etc.)
+     * @param {object|null} data - Optional additional data
      */
-    _renderForm (type) {
+    _renderForm (type, data = null) {
 
-        if (!this.config.providers.length && !this.config.allowRegistration) return;
-
-        if (!['login', 'registration', 'verify'].includes(type)) {
+        if (!['login', 'registration', 'verify', 'reset1', 'reset2', 'reset3'].includes(type)) {
             console.warn('Unknown form type:', type);
             return;
         }
 
-        const form = document.createElement('form');
-        form.className = `authhandler-${type}-form`;
+        let formEl = null;
 
-        if (type === 'verify') {
+        switch (type) {
 
-            if (!this.config.allowRegistration) return;
+            case 'login':
+                formEl = this._renderLoginForm(data);
+                break;
 
-            const notice = document.createElement('div');
-            notice.setAttribute('data-feedback-for', 'code');
-            notice.className = 'authhandler-registration-notice';
-            notice.innerHTML = `<p>${this.getText('verify_email_notice', 'Please enter the verification code sent to your email address.')}</p>`;
+            case 'registration':
+                formEl = this._renderRegistrationForm(data);
+                break;
 
-            const codeBox = document.createElement('div');
-            codeBox.className = 'authhandler-code-box d-flex gap-2 mb-3 justify-content-center';
+            case 'verify':
+                formEl = this._renderVerifyForm(data);
+                break;
 
-            const codeInputs = [];
+            case 'reset1':
+                formEl = this._renderReset1Form(data);
+                break;
 
-            for (let i = 0; i < 4; i++) {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.maxLength = 1;
-                input.inputMode = 'numeric';
-                input.onfocus = function () { this.value = ''; };
-                input.className = 'form-control text-center authhandler-code-digit';
-                input.style = 'width: 3rem; height: 3rem; font-size: 1.5rem; border: 2px solid #ccc;';
+            case 'reset2':
+                formEl = this._renderReset2Form(data);
+                break;
 
-                input.addEventListener('input', (e) => {
-                    if (e.inputType === 'insertText' && input.value.length === 1 && i < 3) {
-                        codeInputs[i + 1].focus();
-                    }
-                });
-
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Backspace' && !input.value && i > 0) {
-                        codeInputs[i - 1].focus();
-                    }
-                });
-
-                codeInputs.push(input);
-                codeBox.appendChild(input);
-            }
-
-            const btn = document.createElement('button');
-            btn.type = 'submit';
-            btn.className = 'authhandler-modal-button';
-            btn.textContent = this.getText('verify_submit', 'Send code');
-
-            form.append(notice, codeBox, btn);
-
-            form.addEventListener('submit', e => {
-                e.preventDefault();
-                const code = codeInputs.map(i => i.value).join('');
-                const email = this.verificationEmail;
-                this._handleVerificationSubmit(form, code, email);
-            });
-
-        } else {
-
-            if (!this.config.allowRegistration && type === 'registration') return;
-
-            if (this.config.allowRegistration) {
-
-                const emailNotice = document.createElement('div');
-                emailNotice.className = 'authhandler-registration-notice';
-                emailNotice.setAttribute('data-feedback-for', 'email');
-                emailNotice.innerHTML = `<p>${type === 'login' ? '' : this.getText('registration_email_notice', 'Please enter a valid email address to use the system.')}</p>`;
-                if (type === 'login') emailNotice.style.display = 'none';
-
-                const passwordNotice = document.createElement('div');
-                passwordNotice.className = 'authhandler-registration-notice';
-                passwordNotice.setAttribute('data-feedback-for', 'password');
-                passwordNotice.innerHTML = `<p>${type === 'login' ? '' : this.getText('registration_password_notice', 'Password must be at least 8 characters and include upper, lower case letters and numbers.')}</p>`;
-                if (type === 'login') passwordNotice.style.display = 'none';
-
-                const email = this._createInput('login_email', 'email', this.getText(type === 'login' ? 'login_email' : 'register_email', 'Email'));
-                const pass = this._createInput('login_password', 'password', this.getText(type === 'login' ? 'login_password' : 'register_password', 'Password'));
-
-                form.append(emailNotice, email, passwordNotice, pass);
-
-                let confirm = null;
-                if (type === 'registration') {
-                    confirm = this._createInput('register_confirm', 'password', this.getText('register_confirm', 'Confirm Password'));
-                    form.appendChild(confirm);
-                }
-
-                const btn = document.createElement('button');
-                btn.type = 'submit';
-                btn.className = 'authhandler-modal-button';
-                btn.textContent = this.getText(`${type}_submit`, type === 'login' ? 'Sign in' : 'Sign up');
-
-                form.appendChild(btn);
-
-            }
-
-            if (
-                (type === 'login' || (type === 'registration' && this.config.providersOnRegistration)) &&
-                this.config.providers?.length
-            ) {
-                if (type === 'registration') {
-                    const providerNotice = document.createElement('div');
-                    providerNotice.className = 'authhandler-registration-notice';
-                    providerNotice.innerHTML = `<p>${this.getText('registration_oauth_notice', 'You can also register with one of the following providers:')}</p>`;
-                    form.appendChild(providerNotice);
-                }
-
-                const providerContainer = document.createElement('div');
-                providerContainer.className = 'authhandler-provider-buttons';
-
-                this.config.providers.forEach(provider => {
-                    const pbtn = document.createElement('button');
-                    pbtn.type = 'button';
-                    pbtn.className = `authhandler-button authhandler-provider-button authhandler-provider-${provider.toLowerCase()}`;
-
-                    const iconSpan = document.createElement('span');
-                    iconSpan.className = `authhandler-provider-icon authhandler-provider-icon-${provider.toLowerCase()}`;
-
-                    const textSpan = document.createElement('span');
-                    textSpan.className = `authhandler-provider-buttontext authhandler-provider-buttontext-${provider.toLowerCase()}`;
-                    const key = `registration_with_provider_${provider.toLowerCase()}`;
-                    textSpan.textContent = this.getText(key, `${provider} regisztráció`);
-
-                    pbtn.append(iconSpan, textSpan);
-                    pbtn.onclick = () => {
-                        window.location.href = this.siteUrl + this.siteScript + `?provider=${provider}`;
-                    };
-
-                    providerContainer.appendChild(pbtn);
-                });
-
-                form.appendChild(providerContainer);
-            }
-
-            form.addEventListener('submit', e => {
-                e.preventDefault();
-                if (type === 'login') {
-                    this._handleLoginSubmit(form);
-                } else if (type === 'registration') {
-                    this._handleRegistrationSubmit(form);
-                }
-            });
+            case 'reset3':
+                formEl = this._renderReset3Form(data);
+                break;
 
         }
 
@@ -477,11 +407,388 @@ class AuthHandler {
             const container = this._resolveTarget(this.config.target);
             if (container) {
                 container.innerHTML = '';
-                container.appendChild(form);
+                container.appendChild(formEl);
             }
         } else {
-            this._showModal(type, form);
+            this._showModal(type, formEl);
         }
+
+    }
+
+
+    /**
+     * Renders the login form.
+     * @param {object|null} data - Optional data to pre-fill the form
+     * @returns {HTMLElement|null} The form element or null if not applicable
+     */
+    _renderLoginForm (data = null) {
+
+        const form = document.createElement('form');
+        form.className = 'authhandler-login-form';
+
+        const emailNotice = document.createElement('div');
+        emailNotice.className = 'authhandler-notice';
+        emailNotice.setAttribute('data-feedback-for', 'email');
+        emailNotice.style.display = 'none';
+
+        if (data?.email) {
+            emailNotice.setAttribute('data-persistent', '1');
+            emailNotice.style.display = '';
+            if (data.from === 'verify') emailNotice.innerHTML = `<p>${this.getText('verify_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
+            if (data.from === 'reset') emailNotice.innerHTML = `<p>${this.getText('reset_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
+        } else {
+            emailNotice.innerHTML = `<p></p>`;
+        }
+
+        const passwordNotice = document.createElement('div');
+        passwordNotice.className = 'authhandler-notice';
+        passwordNotice.setAttribute('data-feedback-for', 'password');
+        passwordNotice.style.display = 'none';
+        passwordNotice.innerHTML = `<p></p>`;
+
+        const email = this._createInput('login_email', 'email', this.getText('login_email', 'Email'));
+        const password = this._createInput('login_password', 'password', this.getText('login_password', 'Password'));
+
+        if (data?.email) {
+            email.value = data.email;
+            email.readOnly = true;
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.className = 'authhandler-form-button';
+        btn.textContent = this.getText('login_submit', 'Sign in');
+
+        form.append(emailNotice, email, passwordNotice, password, btn);
+
+        const providers = this._renderProviderButtons('login_providers_notice', 'You can log in with one of the following providers:');
+        if (providers) form.appendChild(providers);
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            this._handleLoginSubmit(form);
+        });
+
+        return form;
+    }
+
+
+    /**
+     * Renders the registration form.
+     * @param {object|null} data - Optional data to pre-fill the form
+     * @returns {HTMLElement|null} The form element or null if not applicable
+     */
+    _renderRegistrationForm (data = null) {
+
+        if (!this.config.allowRegistration) return null;
+
+        const form = document.createElement('form');
+        form.className = 'authhandler-registration-form';
+
+        const emailNotice = document.createElement('div');
+        emailNotice.className = 'authhandler-notice';
+        emailNotice.setAttribute('data-feedback-for', 'email');
+        emailNotice.innerHTML = `<p>${this.getText('registration_email_notice', 'Please enter a valid email address to use the system.')}</p>`;
+
+        const passwordNotice = document.createElement('div');
+        passwordNotice.className = 'authhandler-notice';
+        passwordNotice.setAttribute('data-feedback-for', 'password');
+        passwordNotice.innerHTML = `<p>${this.getText('registration_password_notice', 'Password must be at least 8 characters and include upper, lower case letters and numbers.')}</p>`;
+
+        const email = this._createInput('register_email', 'email', this.getText('register_email', 'Email'));
+        const password = this._createInput('register_password', 'password', this.getText('register_password', 'Password'));
+        const confirm = this._createInput('register_confirm', 'password', this.getText('register_confirm', 'Confirm Password'));
+
+        if (data?.email) {
+            email.value = data.email;
+            email.readOnly = true;
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.className = 'authhandler-form-button';
+        btn.textContent = this.getText('registration_submit', 'Sign up');
+        form.append(emailNotice, email, passwordNotice, password, confirm, btn);
+
+        const providers = this._renderProviderButtons('registration_providers_notice', 'You can also register with one of the following providers:');
+        if (providers) form.appendChild(providers);
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            this._handleRegistrationSubmit(form);
+        });
+
+        return form;
+
+    }
+
+
+    /**
+     * Renders the verification form.
+     * @param {object|null} data - Optional data to pre-fill the form
+     * @returns {HTMLElement|null} The form element or null if not applicable
+     */
+    _renderVerifyForm (data = null) {
+
+        if (!this.config.allowRegistration) return null;
+
+        const form = document.createElement('form');
+        form.className = 'authhandler-verify-form';
+
+        const notice = document.createElement('div');
+        notice.setAttribute('data-feedback-for', 'code');
+        notice.className = 'authhandler-notice';
+        notice.innerHTML = `<p>${this.getText('verify_code_notice', 'Please enter the verification code sent to your email address.')}</p>`;
+
+        const codeBox = document.createElement('div');
+        codeBox.className = 'authhandler-code-box';
+
+        for (let i = 0; i < 4; i++) {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.maxLength = 1;
+            input.inputMode = 'numeric';
+            input.className = 'form-control text-center authhandler-code-digit';
+            input.setAttribute('data-code-index', i);
+
+            input.onfocus = function () {
+                this.value = '';
+            };
+
+            input.addEventListener('input', (e) => {
+                if (e.inputType === 'insertText' && input.value.length === 1 && i < 3) {
+                    const next = form.querySelector(`[data-code-index="${i + 1}"]`);
+                    if (next) next.focus();
+                }
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !input.value && i > 0) {
+                    const prev = form.querySelector(`[data-code-index="${i - 1}"]`);
+                    if (prev) prev.focus();
+                }
+            });
+
+            codeBox.appendChild(input);
+        }
+
+        const emailHidden = document.createElement('input');
+        emailHidden.type = 'hidden';
+        emailHidden.name = 'verify_email';
+        emailHidden.value = data?.email || '';
+
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.className = 'authhandler-form-button';
+        btn.textContent = this.getText('verify_submit', 'Send code');
+
+        form.append(notice, codeBox, emailHidden, btn);
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            this._handleVerificationSubmit(form);
+        });
+
+        return form;
+
+    }
+
+
+    /**
+     * Renders the reset step 1. form.
+     * @returns {HTMLElement|null} The form element or null if not applicable
+     */
+    _renderReset1Form () {
+
+        const form = document.createElement('form');
+        form.className = 'authhandler-reset1-form';
+
+        const notice = document.createElement('div');
+        notice.setAttribute('data-feedback-for', 'email');
+        notice.className = 'authhandler-notice';
+        notice.innerHTML = `<p>${this.getText('reset1_email_notice', 'Enter your email address and we\'ll send you a verification code.')}</p>`;
+
+        const email = this._createInput('reset_email', 'email', this.getText('reset_email_label', 'Email address'));
+
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.className = 'authhandler-form-button';
+        btn.textContent = this.getText('reset1_submit', 'Send code');
+
+        form.append(notice, email, btn);
+
+        const providers = this._renderProviderButtons('reset_providers_notice', 'If you registered with one of the following providers, you do not need to manage your password, just click the button for the respective provider:');
+        if (providers) form.appendChild(providers);
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            this._handleReset1Submit(form);
+        });
+
+        return form;
+
+    }
+
+
+    /**
+     * Renders the reset step 2. form.
+     * @param {object|null} data - Optional data to pre-fill the form
+     * @returns {HTMLElement|null} The form element or null if not applicable
+     */
+    _renderReset2Form (data = null) {
+
+        if (!data?.email) return null;
+
+        const form = document.createElement('form');
+        form.className = 'authhandler-reset2-form';
+
+        const notice = document.createElement('div');
+        notice.setAttribute('data-feedback-for', 'code');
+        notice.className = 'authhandler-notice';
+        notice.innerHTML = `<p>${this.getText('reset2_code_notice', 'Enter the 4-digit code we sent to your email.')}</p>`;
+
+        const codeBox = document.createElement('div');
+        codeBox.className = 'authhandler-code-box';
+
+        for (let i = 0; i < 4; i++) {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.maxLength = 1;
+            input.inputMode = 'numeric';
+            input.className = 'form-control text-center authhandler-code-digit';
+            input.setAttribute('data-code-index', i);
+
+            input.onfocus = function () {
+                this.value = '';
+            };
+
+            input.addEventListener('input', (e) => {
+                if (e.inputType === 'insertText' && input.value.length === 1 && i < 3) {
+                    const next = form.querySelector(`[data-code-index="${i + 1}"]`);
+                    if (next) next.focus();
+                }
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !input.value && i > 0) {
+                    const prev = form.querySelector(`[data-code-index="${i - 1}"]`);
+                    if (prev) prev.focus();
+                }
+            });
+
+            codeBox.appendChild(input);
+        }
+
+        const emailHidden = document.createElement('input');
+        emailHidden.type = 'hidden';
+        emailHidden.name = 'reset_email';
+        emailHidden.value = data.email;
+
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.className = 'authhandler-form-button';
+        btn.textContent = this.getText('reset2_submit', 'Verify code');
+
+        form.append(notice, codeBox, emailHidden, btn);
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            this._handleReset2Submit(form);
+        });
+
+        return form;
+
+    }
+
+
+    /**
+     * Renders the reset step 3. form.
+     * @param {object|null} data - Optional data to pre-fill the form
+     * @returns {HTMLElement|null} The form element or null if not applicable
+     */
+    _renderReset3Form (data = null) {
+
+        if (!data?.email || !data?.code) return null;
+
+        const form = document.createElement('form');
+        form.className = 'authhandler-reset3-form';
+
+        const email = this._createInput('reset_email', 'email', this.getText('reset_email_label', 'Email address'));
+        email.readOnly = true;
+        email.value = data.email;
+
+        const codeHidden = document.createElement('input');
+        codeHidden.type = 'hidden';
+        codeHidden.name = 'reset_code';
+        codeHidden.value = data.code;
+
+        const notice = document.createElement('div');
+        notice.setAttribute('data-feedback-for', 'password');
+        notice.className = 'authhandler-notice';
+        notice.innerHTML = `<p>${this.getText('reset3_password_notice', 'Set a new password for your account.')}</p>`;
+
+        const password = this._createInput('reset_password', 'password', this.getText('reset_password_label', 'New password'));
+        const confirm  = this._createInput('reset_confirm', 'password', this.getText('reset_confirm_label', 'Confirm new password'));
+
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.className = 'authhandler-form-button';
+        btn.textContent = this.getText('reset3_submit', 'Set new password');
+
+        form.append(email, codeHidden, notice, password, confirm, btn);
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            this._handleReset3Submit(form);
+        });
+
+        return form;
+
+    }
+
+    
+    /**
+     * Creates a container with provider login/registration buttons.
+     * Used in login and registration forms.
+     *
+     * @returns {HTMLElement} A div element containing all provider buttons
+     */
+    _renderProviderButtons (textKey, textDefault) {
+
+        if (!this.config.providers?.length) return null;
+
+        const container = document.createElement('div');
+        container.className = 'authhandler-provider-buttons';
+
+        const noticeProviders = document.createElement('div');
+        noticeProviders.className = 'authhandler-notice';
+        noticeProviders.innerHTML = `<p>${this.getText(textKey, textDefault)}</p>`;
+        container.appendChild(noticeProviders);
+
+        this.config.providers.forEach(provider => {
+
+            const pbtn = document.createElement('button');
+            pbtn.type = 'button';
+            pbtn.className = `authhandler-provider-button authhandler-provider-${provider.toLowerCase()}`;
+
+            const iconSpan = document.createElement('span');
+            iconSpan.className = `authhandler-provider-icon authhandler-provider-icon-${provider.toLowerCase()}`;
+
+            const textSpan = document.createElement('span');
+            textSpan.className = `authhandler-provider-buttontext authhandler-provider-buttontext-${provider.toLowerCase()}`;
+            const key = `registration_with_provider_${provider.toLowerCase()}`;
+            textSpan.textContent = this.getText(key, `${provider}`);
+
+            pbtn.append(iconSpan, textSpan);
+            pbtn.onclick = () => {
+                window.location.href = this.siteUrl + this.siteScript + `?provider=${provider}`;
+            };
+
+            container.appendChild(pbtn);
+
+        });
+
+        return container;
 
     }
 
@@ -538,15 +845,30 @@ class AuthHandler {
             let titleKey = '';
             let titleDefault = '';
 
-            if (type === 'login') {
-                titleKey = 'login_title';
-                titleDefault = 'Sign in';
-            } else if (type === 'registration') {
-                titleKey = 'registration_title';
-                titleDefault = 'Sign up';
-            } else if (type === 'verify') {
-                titleKey = 'verify_title';
-                titleDefault = 'Email Verification';
+            switch (type) {
+
+                case 'login':
+                    titleKey = 'login_title';
+                    titleDefault = 'Sign in';
+                    break;
+
+                case 'registration':
+                    titleKey = 'registration_title';
+                    titleDefault = 'Sign up';
+                    break;
+
+                case 'verify':
+                    titleKey = 'verify_title';
+                    titleDefault = 'Email Verification';
+                    break;
+
+                case 'reset1':
+                case 'reset2':
+                case 'reset3':
+                	titleKey = 'reset_title';
+	                titleDefault = 'Reset password';
+                    break;
+            
             }
 
             const modalHtml = this._createModal(
@@ -584,7 +906,8 @@ class AuthHandler {
         input.id = id;
         input.name = id;
         input.placeholder = placeholder;
-        input.className = 'form-control mb-2';
+        input.autocomplete = "one-time-code";
+        input.className = 'form-control authhandler-input';
 
         return input;
 
@@ -639,7 +962,7 @@ class AuthHandler {
         const passInput  = form.querySelector('input[type="password"]');
 
         const payload = {
-            authHandlerAction: 'login',
+            ah_action: 'login',
             email: emailInput?.value.trim() || '',
             password: passInput?.value || ''
         };
@@ -673,7 +996,7 @@ class AuthHandler {
         const confirm  = form.querySelectorAll('input[type="password"]')[1];
 
         const payload = {
-            authHandlerAction: 'register',
+            ah_action: 'register',
             email: email?.value.trim() || '',
             password: password?.value || '',
             confirm: confirm?.value || ''
@@ -686,29 +1009,34 @@ class AuthHandler {
                 const modalEl = form.closest('.authhandler-modal');
                 const modal = bootstrap.Modal.getInstance(modalEl);
                 if (modal) modal.hide();
-                this.verificationEmail = email?.value.trim();
-                this._renderForm('verify');
+                const emailVal = email?.value.trim();
+                if (emailVal) {
+                    this._renderForm('verify', { email: emailVal });
+                }
             },
             null,
             'registration'
         );
 
+
     }
 
 
-        /**
+    /**
      * Submits the verification code and handles feedback.
      *
      * @param {HTMLFormElement} form - The verification form element
      * @param {string} code - The 4-digit code input by user
      * @param {string} email - Email address to verify against
      */
-    _handleVerificationSubmit (form, code, email) {
+    _handleVerificationSubmit (form) {
 
-        if (!email || !code) return;
+        const inputs = form.querySelectorAll('.authhandler-code-digit');
+        const code = Array.from(inputs).map(i => i.value.trim()).join('');
+        const email = form.querySelector('input[name="verify_email"]')?.value.trim();
 
         const payload = {
-            authHandlerAction: 'verify',
+            ah_action: 'verify',
             email: email,
             code: code
         };
@@ -722,19 +1050,13 @@ class AuthHandler {
                     const modal = bootstrap.Modal.getInstance(modalEl);
                     if (modal) modal.hide();
                 }
-                this.showFeedback({
-                    success: true,
-                    message: this.getText('verify_success', 'Verification successful.')
-                });
+                this._renderForm('login', { email: email, from: 'verify' });
             },
-            () => {
-                this.showFormFeedback('verify', { code: 'verify_failed' });
-            },
+            null,
             'verify'
         );
 
     }
-
 
 
     /**
@@ -755,7 +1077,7 @@ class AuthHandler {
         if (btn) {
             btn.disabled = true;
             btn.dataset.originalLabel = btn.innerHTML;
-            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>` + this.getText('processing', 'Feldolgozás...');
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>` + this.getText('processing', 'Processing...');
             if (modalEl) modalEl.classList.add('submitting');
         }
 
@@ -788,6 +1110,108 @@ class AuthHandler {
                 delete btn.dataset.originalLabel;
             }
         });
+
+    }
+
+
+    /**
+     * Handles the submission of the reset step 1 form.
+     * @param {HTMLFormElement} form - The form being submitted
+     */
+    _handleReset1Submit (form) {
+    
+        const email = form.querySelector('input[type="email"]').value.trim() || '';
+
+        const payload = {
+            ah_action: 'reset1',
+            email: email
+        };
+
+        this._submitFormHelper(
+            form,
+            payload,
+            (response) => {
+                const modalEl = form.closest('.authhandler-modal');
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                }
+                this._renderForm('reset2', { email: email });
+            },
+            null,
+            'reset1'
+        );
+
+    }
+
+
+    /**
+     * Handles the submission of the reset step 2 form.
+     * @param {HTMLFormElement} form - The form being submitted
+     */
+    _handleReset2Submit (form) {
+
+        const inputs = form.querySelectorAll('.authhandler-code-digit');
+        const code = Array.from(inputs).map(i => i.value.trim()).join('');
+        const email = form.querySelector('input[name="reset_email"]')?.value.trim() || '';
+
+        const payload = {
+            ah_action: 'reset2',
+            email: email,
+            code: code
+        };
+
+        this._submitFormHelper(
+            form,
+            payload,
+            (response) => {
+                const modalEl = form.closest('.authhandler-modal');
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                }
+                this._renderForm('reset3', { email: email, code: code });
+            },
+            null,
+            'reset2'
+        );
+
+    }
+
+
+    /**
+     * Handles the submission of the reset step 3 form.
+     * @param {HTMLFormElement} form - The form being submitted
+     */
+    _handleReset3Submit (form) {
+
+        const emailInput = form.querySelector('input[name="reset_email"]');
+        const codeInput  = form.querySelector('input[name="reset_code"]');
+        const passInput  = form.querySelector('input[name="reset_password"]');
+        const confInput  = form.querySelector('input[name="reset_confirm"]');
+
+        const payload = {
+            ah_action: 'reset3',
+            email: emailInput?.value.trim() || '',
+            code: codeInput?.value.trim() || '',
+            password: passInput?.value || '',
+            confirm: confInput?.value || ''
+        };
+
+        this._submitFormHelper(
+            form,
+            payload,
+            (response) => {
+                const modalEl = form.closest('.authhandler-modal');
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                }
+                this._renderForm('login', { email: payload.email, from: 'reset' });
+            },
+            null,
+            'reset3'
+        );
 
     }
 
