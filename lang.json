@@ -92,12 +92,16 @@
     "hu": "Bejelentkezés Facebook-kal"
   },
   "cant_login": {
-    "en": "Cannot login with the provided credentials.",
-    "hu": "A megadott adatokkal nem lehet bejelentkezni."
+    "en": "Cannot login with the provided credentials. If you forgot your password, <a href=\"javascript:resetPassword()\">click here to request a new password.</a>",
+    "hu": "A megadott adatokkal nem lehet bejelentkezni. Ha elfelejtette a jelszavát, <a href=\"javascript:resetPassword()\">ide kattintva kérhet új jelszót.</a>"
+  },
+  "password_reset": {
+    "en": "If you forgot your password, click here to request a new password.",
+    "hu": "Ha elfelejtetted a jelszavad, ide kattintva kérhetsz új jelszót."
   },
   "missing_fields": {
     "en": "Please fill in all fields.",
-    "hu": "Kérjük, töltse ki a mezőket."
+    "hu": "Kérjük, töltsd ki a mezőket."
   },
   "email_exists": {
     "en": "Email already exists.",
@@ -129,7 +133,7 @@
   },
   "registration_failed": {
     "en": "Registration failed. Please try again.",
-    "hu": "A regisztráció sikertelen. Kérjük, próbálja újra."
+    "hu": "A regisztráció sikertelen. Kérjük, próbáld újra."
   },
   "server_error": {
     "en": "Server error occurred.",

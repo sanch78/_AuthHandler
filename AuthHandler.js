@@ -3,8 +3,7 @@ class AuthHandler {
 	constructor ({
 	modulePath,
 	config = {},
-	autoInit = true,
-	langData = null
+    token = null
     }) {
 
         if (!modulePath) {
@@ -12,6 +11,8 @@ class AuthHandler {
         }
 
         this.modulePath = modulePath.endsWith('/') ? modulePath : modulePath + '/';
+
+        this.userToken = token;
 
         const defaultConfig = {
             providers: [],
@@ -26,18 +27,11 @@ class AuthHandler {
 
         this.siteUrl = this.config.siteUrl || window.location.origin + window.location.pathname;
         this.siteScript = this.config.siteScript || window.location.pathname;
-        this.token = null;
         this.langCode = this.config.langCode;
 
         this.langData = {};
         this._loadLang().then(() => {
-            if (langData && typeof langData === 'object') {
-                this.setLangData(langData);
-            }
-
-            if (autoInit) {
-                this.init();
-            }
+            if (this.config.autoIninit) this.init();
         });
     
     }
@@ -54,9 +48,7 @@ class AuthHandler {
      * @param {string} modulePath - Optional override for module path (used if constructor didn't set it)
      * @returns {void}
      */
-    init (token = null) {
-
-        this.userToken = token;
+    init () {
 
         let callback = this.config.onInit;
 
@@ -120,17 +112,6 @@ class AuthHandler {
 
 
     /**
-     * Sets the user token.
-     * @param {string|null} token - The user token (or null if not logged in)
-     */
-    setUserToken (token) {
-
-        this.userToken = token;
-
-    }
-
-
-    /**
      * Checks if the user is logged in.
      * @returns {boolean}
      */
@@ -187,6 +168,31 @@ class AuthHandler {
 
 
     /**
+     * Handles logout request via AJAX.
+     */
+    logout () {
+
+        const payload = {
+            ah_action: 'logout'
+        };
+
+        fetch(this.siteUrl + this.siteScript, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(response => {
+            this._logoutSuccess();
+        })
+        .catch(err => {
+            this._logoutSuccess();
+        });
+
+    }
+
+
+    /**
      * Initiates the registration process by rendering the registration form.
      *
      * @returns {void}
@@ -205,22 +211,6 @@ class AuthHandler {
     resetPassword () {
 
         this._renderForm('reset1');
-
-    }
-
-
-    /**
-     * Logs out the current user by calling the logout endpoint,
-     * clears the user token, and refreshes the injected UI.
-     *
-     * @returns {void}
-     */
-    logout () {
-
-        fetch(this.modulePath + 'logout.php', { method: 'POST' }).then(() => {
-            this.setUserToken(null);
-            this.injectButtons();
-        });
 
     }
 
@@ -267,12 +257,18 @@ class AuthHandler {
                 noticeWrap.classList.add('authhandler-error-notice', 'active');
 
                 if (formType === 'login') {
+                    const existing = noticeWrap.querySelector('.authhandler-reset-suggestion');
+                    if (existing) existing.remove();
+
+                    const resetElem = this._addPasswordResetLink();
+                    if (resetElem) noticeWrap.appendChild(resetElem);
+
                     noticeWrap.style.display = 'block';
                 }
             } else {
                 if (formType === 'login') {
                     if (!noticeWrap.hasAttribute('data-persistent')) {
-                        p.textContent = '';
+                        p.innerHTML  = '';
                     }
                     noticeWrap.classList.remove('authhandler-error-notice', 'active');
                     if (formType === 'login') {
@@ -282,7 +278,7 @@ class AuthHandler {
                     }
                 } else {
                     const defaultKey = `${formType}_${fieldId}_notice`;
-                    p.textContent = this.getText(defaultKey, '');
+                    p.innerHTML  = this.getText(defaultKey, '');
                     noticeWrap.classList.remove('authhandler-error-notice');
                     noticeWrap.classList.add('active');
                 }
@@ -372,6 +368,8 @@ class AuthHandler {
             console.warn('Unknown form type:', type);
             return;
         }
+
+        this.passwordResetLinkUsed = false;
 
         let formEl = null;
 
@@ -781,7 +779,7 @@ class AuthHandler {
 
             pbtn.append(iconSpan, textSpan);
             pbtn.onclick = () => {
-                window.location.href = this.siteUrl + this.siteScript + `?provider=${provider}`;
+                window.location.href = this.siteUrl + this.siteScript + `?ah_action=provider&provider=${provider}`;
             };
 
             container.appendChild(pbtn);
@@ -959,7 +957,7 @@ class AuthHandler {
     _handleLoginSubmit (form) {
 
         const emailInput = form.querySelector('input[type="email"]');
-        const passInput  = form.querySelector('input[type="password"]');
+        const passInput = form.querySelector('input[type="password"]');
 
         const payload = {
             ah_action: 'login',
@@ -991,9 +989,9 @@ class AuthHandler {
      */
     _handleRegistrationSubmit (form) {
 
-        const email    = form.querySelector('input[type="email"]');
+        const email = form.querySelector('input[type="email"]');
         const password = form.querySelector('input[type="password"]');
-        const confirm  = form.querySelectorAll('input[type="password"]')[1];
+        const confirm = form.querySelectorAll('input[type="password"]')[1];
 
         const payload = {
             ah_action: 'register',
@@ -1069,7 +1067,8 @@ class AuthHandler {
      * @param {function} onError - Callback if response.errors or error
      * @param {string} formType - Used for feedback (e.g. 'login', 'registration', 'verify')
      */
-    _submitFormHelper (form, payload, onSuccess, onError, formType = '') {
+    _submitFormHelper (form, payload, onSuccess, onError = null, formType = null) {
+
 
         const btn = form.querySelector('button[type="submit"]');
         const modalEl = form.closest('.authhandler-modal');
@@ -1095,13 +1094,12 @@ class AuthHandler {
                 if (typeof onError === 'function') {
                     onError(response);
                 } else {
-                    this.showFormFeedback(formType, response.errors || {});
+                    if (formType) this.showFormFeedback(formType, response.errors || {});
                 }
             }
         })
         .catch(err => {
-            console.error(`${formType} failed:`, err);
-            this.showFormFeedback(formType, { email: 'server_error' });
+            if (formType) this.showFormFeedback(formType, { email: 'server_error' });
         })
         .finally(() => {
             if (btn && btn.dataset.originalLabel) {
@@ -1215,6 +1213,69 @@ class AuthHandler {
 
     }
 
+    /**
+     * Adds a password reset link to the modal.
+     * @returns {string} - The HTML string for the password reset link
+     */
+    _addPasswordResetLink () {
+
+        if (this.passwordResetLinkUsed) return null;
+        this.passwordResetLinkUsed = true;
+
+        const container = document.createElement('div');
+        container.className = 'authhandler-reset-suggestion';
+
+        const link = document.createElement('a');
+        link.href = 'javascript:void(0);';
+        link.textContent = this.getText('password_reset', 'Click here to reset your password');
+        link.className = 'authhandler-reset-link';
+
+        link.onclick = (e) => {
+            e.preventDefault();
+
+            const modalEl = link.closest('.modal');
+            if (modalEl) {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+
+            if (typeof this.resetPassword === 'function') {
+                this.resetPassword();
+            }
+        };
+
+        container.appendChild(link);
+
+        return container;
+    }
+
+
+    /**
+     * Handles successful logout state: clears token and triggers callbacks.
+     */
+    _logoutSuccess () {
+
+        this.userToken = null;
+
+        let callback = this.config.onLogout;
+
+        if (typeof callback === 'string') {
+            try {
+                callback = eval(callback);
+            } catch (e) {
+                console.warn('Invalid onLogout callback string:', this.config.onLogout);
+                callback = null;
+            }
+        }
+
+        if (typeof callback === 'function') {
+            callback();
+        } else if (this.config.buttonsTarget) {
+            this.injectButtons(this.config.buttonsTarget);
+        }
+
+    }
+
 
     /**
      * Handles successful login state: sets token and triggers callbacks.
@@ -1223,7 +1284,7 @@ class AuthHandler {
      */
     _loginSuccess (token) {
 
-        this.setUserToken(token);
+        this.userToken = token;
 
         let callback = this.config.onLogin;
 
@@ -1237,7 +1298,7 @@ class AuthHandler {
         }
 
         if (typeof callback === 'function') {
-            callback(token);
+            callback();
         } else if (this.config.buttonsTarget) {
             this.injectButtons(this.config.buttonsTarget);
         }

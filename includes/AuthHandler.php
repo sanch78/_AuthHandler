@@ -40,18 +40,15 @@ class AuthHandler
             throw new Exception("AuthHandler requires a config array or a valid path to a config file");
         }
 
-        foreach (['on_init', 'on_login', 'on_error'] as $key) {
+        $this->InitSessionIfNeeded();
+
+        foreach (['on_init', 'on_login', 'on_logout'] as $key) {
             if (isset($this->config[$key]) && is_string($this->config[$key])) {
                 $trimmed = trim($this->config[$key]);
                 $this->config[$key] = $trimmed ? [ $trimmed ] : [];
             } elseif (!isset($this->config[$key]) || !is_array($this->config[$key])) {
                 $this->config[$key] = [];
             }
-        }
-
-        if (!empty($this->config['buttons_target'])) {
-            $target = json_encode($this->config['buttons_target'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $this->config['on_init'][] = "instance.injectButtons({$target});";
         }
 
         $this->modulePath = rtrim($this->config['module_path'] ?? './AuthHandler/', '/') . '/';
@@ -61,6 +58,13 @@ class AuthHandler
         $this->sqlConfig = $this->config['sql_config'] ?? [];
         $this->lang = $this->config['lang'] ?? 'en';
 
+        if (!empty($this->config['buttons_target'])) {
+            $target = json_encode($this->config['buttons_target'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $this->config['on_init'][] = "instance.injectButtons({$target});";
+        }
+        if (empty($this->config['on_login'])) $this->config['on_login'][] = "window.location.href = '{$this->siteUrl}';";
+        if (empty($this->config['on_logout'])) $this->config['on_logout'][] = "window.location.href = '{$this->siteUrl}';";
+        
         $this->LoadLang($this->lang);
 
         $this->InitializeSqlConnection();
@@ -160,6 +164,10 @@ class AuthHandler
     }
 
 
+    /**
+     * Handles incoming requests and routes them to the appropriate method.
+     * @return void
+     */
     public function HandleRequest () {
 
         $rawInput = file_get_contents('php://input');
@@ -175,6 +183,10 @@ class AuthHandler
         unset($data['ah_action']);
 
         switch ($action) {
+
+            case 'provider':
+                $result = $this->HandleOAuthLogin($data['provider'], !empty($_GET['callback']));
+                break;
 
             case 'remote_verify': {
                 $result = $this->ApiVerify($data);
@@ -255,29 +267,27 @@ class AuthHandler
 
         if (!$email) $errors['email'] = 'missing_fields';
 
-        if (empty($errors)) {
+        if (!empty($errors)) {
+            return [
+                'success' => false,
+                'errors'  => $errors
+            ];
+        }
 
-            $table     = $this->config['sql_config']['table'];
-            $fieldset  = $this->config['sql_config']['fieldset'];
+        $user = $this->FindUserByFields(['user_email' => $email]);
 
-            $colEmail   = $fieldset['user_email'];
-            $colHash    = $fieldset['user_password'];
-            $colToken   = $fieldset['user_token'];
-            $colRegkey  = $fieldset['user_regkey'];
-            $colKey     = $fieldset['key'];
+        if (!$user) $errors['email'] = 'cant_login';
 
-            $sql = "SELECT {$colKey}, {$colHash}, {$colToken}, {$colRegkey} FROM {$table} WHERE {$colEmail} = :email LIMIT 1";
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->execute([':email' => $email]);
+        elseif (!password_verify($password, $user['user_password'])) $errors['password'] = 'cant_login';
 
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        elseif (!empty($user['user_regkey'])) $errors['email'] = 'not_verified';
 
-            if (!$row) $errors['email'] = 'cant_login';
+        $token = $user['user_token'] ?? null;
 
-            elseif (!password_verify($password, $row[$colHash])) $errors['password'] = 'cant_login';
-
-            elseif (!empty($row[$colRegkey])) $errors['email'] = 'not_verified';
-
+        if (!$token) {
+            $this->UpdateUserFieldsById($user['key'], [
+                'user_token' => $this->GenerateUniqueToken()
+            ]);
         }
 
         if (!empty($errors)) {
@@ -287,11 +297,31 @@ class AuthHandler
             ];
         }
 
-        $token = $row[$colToken] ?? null;
+        $this->LoginUser($token);
 
         return [
             'success' => true,
             'token'   => $token
+        ];
+
+    }
+
+
+    /**
+     * Logs out the user by clearing the session and returning a success response.
+     *
+     * @return array API response with success status
+     */
+    public function ApiLogout (): array
+    {
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            unset($_SESSION['user_token']);
+            session_destroy();
+        }
+
+        return [
+            'success' => true
         ];
     }
 
@@ -341,14 +371,14 @@ class AuthHandler
         $hash = password_hash($password, PASSWORD_DEFAULT);
 
         $user = $this->InsertUser([
-            'user_email'    => $email,
+            'user_email' => $email,
             'user_password' => $hash,
-            'created_at'    => date('Y-m-d H:i:s')
+            'created_at' => date('Y-m-d H:i:s')
         ]);
 
-        if (!$user || empty($user['id'])) return ['success' => false, 'errors'  => ['email' => 'registration_failed']];
+        if (!$user || empty($user['key'])) return ['success' => false, 'errors'  => ['email' => 'registration_failed']];
 
-        $this->SendRegistrationEmail($email, $user['regkey']);
+        $this->SendRegistrationEmail($email, $user['user_regkey']);
 
         return ['success' => true];
 
@@ -552,18 +582,18 @@ class AuthHandler
 
         $row = $this->GetVerifyRowByEmail($email);
 
-        if (!$row || !isset($row['regkey'])) {
+        if (!$row || !isset($row['user_regkey'])) {
             return [
                 'success' => false,
                 'errors' => ['code' => 'verify_failed']
             ];
         }
 
-        if ($row['regkey'] === null) {
+        if ($row['user_regkey'] === null) {
             return ['success' => true];
         }
 
-        if ($row['regkey'] !== $code) {
+        if ($row['user_regkey'] !== $code) {
             return [
                 'success' => false,
                 'errors' => ['code' => 'verify_failed']
@@ -571,7 +601,7 @@ class AuthHandler
         }
 
         if ($doWrite) {
-            $ok = $this->UpdateUserFieldsById((int)$row['id'], [
+            $ok = $this->UpdateUserFieldsById((int)$row['key'], [
                 'user_regkey' => null
             ]);
             if (!$ok) {
@@ -608,7 +638,7 @@ class AuthHandler
         $map = [
             'on_init'  => 'onInit',
             'on_login' => 'onLogin',
-            'on_error' => 'onError'
+            'on_logout' => 'onLogout'
         ];
 
         foreach ($map as $sourceKey => $targetKey) {
@@ -638,11 +668,13 @@ class AuthHandler
             'providersOnRegistration' => $this->config['providers_on_registration'] ?? false,
             'mode' => $this->config['mode'] ?? 'modal',
             'buttonsTarget' => $this->config['buttons_target'] ?? null,
+            'autoIninit' => $autoInit,
             'onInit'  => !empty($callbacks['onInit']) ? "_{$jsObject}OnInit" : null,
             'onLogin' => !empty($callbacks['onLogin']) ? "_{$jsObject}OnLogin" : null,
-            'onError' => !empty($callbacks['onError']) ? "_{$jsObject}onError" : null,
+            'onLogout' => !empty($callbacks['onLogout']) ? "_{$jsObject}OnLogout" : null,
             'siteUrl' => $this->siteUrl,
-            'siteScript' => $this->siteScript
+            'siteScript' => $this->siteScript,
+            'myObject' => $jsObject
         ], function ($v) {
             return $v !== null;
         });
@@ -651,9 +683,8 @@ class AuthHandler
             if (!count($lines)) continue;
 
             $fnName = "_{$jsObject}" . ucfirst(str_replace('_', '', $hook));
-            $arg = $hook === 'on_login' ? 'token' : 'instance';
 
-            echo "window.{$fnName} = function ({$arg}) {\n";
+            echo "window.{$fnName} = function (instance) {\n";
             foreach ($lines as $line) {
                 echo "{$line}\n";
             }
@@ -663,12 +694,18 @@ class AuthHandler
         echo "window.{$jsObject} = new AuthHandler({\n";
         echo "modulePath: '" . $modulePath . "',\n";
         echo "config: " . json_encode($config, JSON_UNESCAPED_SLASHES) . ",\n";
-        echo "autoInit: " . ($autoInit ? 'true' : 'false') . ",\n";
+        echo "token: " . json_encode($_SESSION['auth_token'] ?? null) . "\n";
         echo "});\n";
 
     }
 
 
+    /**
+     * Injects feedback script based on the last action result or data.
+     * This method modifies the 'on_init' config to include feedback rendering.
+     *
+     * @return void
+     */
     public function FeedbackScriptInjector () {
 
         if (empty($this->lastActionResult) && empty($this->lastActionData)) {
@@ -699,89 +736,194 @@ class AuthHandler
     }
 
 
-    protected function SendResetEmail (string $toEmail, string $regkey): bool
+    /**
+     * Initializes PHP session if not already active and auto_session is enabled.
+     * Sets custom session name if configured.
+     *
+     * @return void
+     */
+    protected function InitSessionIfNeeded (): void
     {
-        $link = $this->siteUrl . $this->siteScript . '?ah_action=remote_reset&email=' . urlencode($toEmail) . '&code=' . urlencode($regkey);
 
-        return $this->SendTemplateEmail(
-            $toEmail,
-            __DIR__ . '/templates/email_reset_pasword.html',
-            $this->texts['reset_subject'] ?? 'Reset password',
-            [
-                '{regkey}'     => $regkey,
-                '{verify_url}' => $link
-            ]
-        );
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+
+        if (!empty($this->config['auto_session'])) {
+
+            if (!empty($this->config['session_name'])) {
+                session_name($this->config['session_name']);
+            }
+
+            session_start();
+        }
+
     }
-
-
-    protected function SendRegistrationEmail (string $toEmail, string $regkey): bool
-    {
-        $link = $this->siteUrl . $this->siteScript . '?ah_action=remote_verify&email=' . urlencode($toEmail) . '&code=' . urlencode($regkey);
-
-        return $this->SendTemplateEmail(
-            $toEmail,
-            __DIR__ . '/templates/email_regcheck.html',
-            $this->texts['verify_subject'] ?? 'Email verification',
-            [
-                '{regkey}'     => $regkey,
-                '{verify_url}' => $link
-            ]
-        );
-    }
-
 
 
     /**
-     * Sends an HTML email using a template and external command.
+     * Checks if the user is currently logged in by verifying the session token.
      *
-     * @param string $toEmail Recipient's email address
-     * @param string $templateFile Absolute path to the HTML template
-     * @param string $subject Email subject
-     * @param array $placeholders Array of placeholder => replacement (e.g. '{regkey}' => '1234')
-     * @return bool True if mail sent successfully, false otherwise
+     * @return bool True if logged in, false otherwise
      */
-    protected function SendTemplateEmail (string $toEmail, string $templateFile, string $subject, array $placeholders): bool
+    public function IsLoggedIn (): bool
     {
-        $cfg = $this->config['email_config'] ?? null;
 
-        if (!$cfg || empty($cfg['email_command'])) {
-            return false;
-        }
+        return isset($_SESSION['auth_token']);
 
-        if (!file_exists($templateFile)) {
-            return false;
-        }
-
-        $templateContent = file_get_contents($templateFile);
-        if ($templateContent === false) {
-            return false;
-        }
-
-        $placeholders['{email}']     = $toEmail;
-        $placeholders['{site_name}'] = $this->config['site_name'] ?? '';
-
-        $body = strtr($templateContent, $placeholders);
-
-        $tmpFile = tempnam(sys_get_temp_dir(), 'mail_');
-        file_put_contents($tmpFile, $body);
-
-        $command = strtr($cfg['email_command'], [
-            '{to}'       => $toEmail,
-            '{subject}'  => addslashes($subject) . ' - ' . $this->config['site_name'],
-            '{bodyfile}' => $tmpFile
-        ]);
-
-        exec($command, $output, $exitCode);
-
-        unlink($tmpFile);
-
-        return $exitCode === 0;
     }
 
 
+    /**
+     * Logs in a user by token: loads user data and stores session state.
+     *
+     * @param string $token The authentication token
+     * @return bool True if login succeeded, false otherwise
+     */
+    public function LoginUser (string $token): bool
+    {
+
+        $user = $this->FindUserByFields(['user_token' => $token]);
+
+        if (!$user) return false;
+
+        $_SESSION['auth_token'] = $token;
+        $_SESSION['auth_user'] = $user;
+
+        return true;
+
+    }
+
+
+    /**
+     * Logs out the current user by clearing session data.
+     *
+     * @return bool True if logout succeeded
+     */
+    public function LogoutUser (): bool
+    {
+
+        unset($_SESSION['auth_token']);
+        unset($_SESSION['auth_user']);
+
+        return true;
+
+    }
+
+
+    /**
+     * Returns the currently logged-in user's full data, or null if not logged in.
+     *
+     * @return array|null Associative user row or null if not authenticated
+     */
+    public function GetLoggedInUser (): ?array
+    {
+
+        if (!isset($_SESSION['auth_token'])) {
+            return null;
+        }
+
+        return $this->FindUserByFields(['user_token' => $_SESSION['auth_token']]);
+
+    }
+
+
+    /**
+     * Handles the OAuth login process for a specific provider.
+     *
+     * @param string $providerName The name of the OAuth provider (e.g., Google).
+     * @param bool $isCallback Indicates if the request is a callback from the provider.
+     */
+    protected function HandleOAuthLogin ($providerName, $isCallback = false)
+    {
+
+        $providerName = ucfirst(strtolower($providerName));
+        if ($providerName !== 'Google') {
+            http_response_code(400);
+            exit('Only Google provider is supported.');
+        }
+
+        $config = $this->config['hybridauth_config'] ?? [];
+        $config['callback'] = $this->config['site_url'] . $this->config['site_script'] . '?ah_action=provider&provider=' . urlencode($providerName) . '&callback=1';
+
+        if (empty($config['providers'][$providerName]['enabled'])) {
+            http_response_code(403);
+            exit('Provider not enabled.');
+        }
+
+        try {
+            $hybridauth = new \Hybridauth\Hybridauth($config);
+            $adapter = $hybridauth->authenticate($providerName);
+        } catch (Exception $e) {
+            http_response_code(500);
+            exit('OAuth init failed: ' . $e->getMessage());
+        }
+
+        if (!$isCallback) {
+            exit;
+        }
+
+        try {
+            $userProfile = $adapter->getUserProfile();
+        } catch (Exception $e) {
+            http_response_code(500);
+            exit('OAuth profile failed: ' . $e->getMessage());
+        }
+
+        $email = $userProfile->email ?? null;
+        $providerId = $userProfile->identifier ?? null;
+
+        if (!$email || !$providerId) {
+            http_response_code(400);
+            exit('Missing required profile data.');
+        }
+
+        list($table, $fs) = $this->GetSqlMeta();
+
+        $user = $this->FindUserByFields([
+            'provider' => $providerName,
+            'provider_id' => $providerId
+        ]);
+
+        if (!$user) {
+            $result = $this->InsertUser([
+                'user_email' => $email,
+                'provider' => $providerName,
+                'provider_id' => $providerId,
+                'created_at' => time(),
+                'last_login' => time()
+            ]);
+
+            if (!$result || empty($result['token'])) {
+                http_response_code(500);
+                exit('User insert failed.');
+            }
+
+            $token = $result['user_token'];
+
+        } else {
+            $token = $user['user_token'];
+            $this->UpdateUserFieldsById($user['key'], [
+                'last_login' => time()
+            ]);
+        }
+
+        $this->LoginUser($token);
+
+        header('Location: ' . $this->config['site_url']);
+        exit;
+
+    }
+
+
+    /**
+     * Retrieves the SQL table and fieldset metadata.
+     *
+     * @return array An array containing the table name and fieldset
+     */
     protected function GetSqlMeta (): array
     {
+
         $table    = $this->sqlConfig['table'] ?? null;
         $fieldset = $this->sqlConfig['fieldset'] ?? null;
 
@@ -790,6 +932,7 @@ class AuthHandler
         }
 
         return [ $table, $fieldset ];
+
     }
 
 
@@ -876,21 +1019,73 @@ class AuthHandler
     }
 
 
-    protected function AssignNewResetkeyByEmail (string $email): ?string
+    /**
+     * Finds a user by arbitrary logical field conditions (AND combined).
+     *
+     * @param array $conditions Associative array of logical field => value pairs
+     * @return array|null Full user row as associative array, or null if not found
+     */
+    protected function FindUserByFields (array $conditions): ?array
     {
 
         list($table, $fs) = $this->GetSqlMeta();
 
-        $sql = "SELECT {$fs['key']} FROM {$table} WHERE {$fs['user_email']} = :email LIMIT 1";
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':email' => $email]);
-
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$user || empty($user[$fs['key']])) {
+        if (empty($fs['key']) || empty($conditions)) {
             return null;
         }
 
-        $userId = (int)$user[$fs['key']];
+        $where = [];
+        $params = [];
+
+        foreach ($conditions as $logical => $value) {
+            if (!isset($fs[$logical])) continue;
+            $col = $fs[$logical];
+            $where[] = "{$col} = :{$col}";
+            $params[":{$col}"] = $value;
+        }
+
+        if (empty($where)) {
+            return null;
+        }
+
+        $sql = "SELECT * FROM {$table} WHERE " . implode(' AND ', $where) . " LIMIT 1";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) return null;
+
+        $result = [];
+
+        foreach ($fs as $logical => $column) {
+            if (isset($row[$column])) {
+                $result[$logical] = $row[$column];
+            }
+        }
+
+        return $result;
+
+    }
+
+
+
+    /**
+     * Assigns a new reset key to the user identified by email.
+     *
+     * @param string $email User's email address
+     * @return string|null New reset key or null on failure
+     */
+    protected function AssignNewResetkeyByEmail (string $email): ?string
+    {
+
+        $user = $this->FindUserByFields(['user_email' => $email]);
+
+        if (!$user || empty($user['key'])) {
+            return null;
+        }
+
+        $userId = (int)$user['key'];
         $resetKey = str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT);
 
         $ok = $this->UpdateUserFieldsById($userId, [
@@ -902,7 +1097,6 @@ class AuthHandler
     }
 
 
-
     /**
      * Retrieves the user's ID, regkey and token by email for verification.
      *
@@ -911,25 +1105,16 @@ class AuthHandler
      */
     protected function GetVerifyRowByEmail (string $email): ?array
     {
+        $user = $this->FindUserByFields(['user_email' => $email]);
 
-        list($table, $fs) = $this->GetSqlMeta();
-
-        if (!isset($fs['user_email'], $fs['user_regkey'], $fs['user_token'], $fs['key'])) {
+        if (!$user) {
             return null;
         }
 
-        $sql = "SELECT {$fs['key']} AS id, {$fs['user_token']} AS token, {$fs['user_regkey']} AS regkey
-                FROM {$table}
-                WHERE {$fs['user_email']} = :email
-                LIMIT 1";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':email' => $email]);
-
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row ?: null;
-
+        return [
+            'key' => $user['key'] ?? null,
+            'user_regkey' => $user['user_regkey'] ?? null
+        ];
     }
 
 
@@ -995,11 +1180,11 @@ class AuthHandler
 
         list($table, $fs) = $this->GetSqlMeta();
 
-        if (isset($fs['user_regkey']) && !isset($fields['user_regkey'])) {
+        if (!isset($fields['user_regkey'])) {
             $fields['user_regkey'] = str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT);
         }
 
-        if (isset($fs['user_token']) && !isset($fields['user_token'])) {
+        if (!isset($fields['user_token'])) {
             $fields['user_token'] = $this->GenerateUniqueToken();
         }
 
@@ -1024,9 +1209,9 @@ class AuthHandler
         if (!$stmt->execute($params)) return null;
 
         return [
-            'id'     => (int)$this->pdo->lastInsertId(),
-            'regkey' => $fields['user_regkey'] ?? null,
-            'token'  => $fields['user_token'] ?? null
+            'key'     => (int)$this->pdo->lastInsertId(),
+            'user_regkey' => $fields['user_regkey'] ?? null,
+            'user_token'  => $fields['user_token'] ?? null
         ];
 
     }
@@ -1069,5 +1254,102 @@ class AuthHandler
         return $stmt->execute($params);
     }
 
+
+    /**
+     * Sends a password reset email with a unique link.
+     *
+     * @param string $toEmail Recipient's email address
+     * @param string $regkey Unique reset key
+     * @return bool True if email sent successfully, false otherwise
+     */
+    protected function SendResetEmail (string $toEmail, string $regkey): bool
+    {
+        $link = $this->siteUrl . $this->siteScript . '?ah_action=remote_reset&email=' . urlencode($toEmail) . '&code=' . urlencode($regkey);
+
+        return $this->SendTemplateEmail(
+            $toEmail,
+            __DIR__ . '/templates/email_reset_pasword.html',
+            $this->texts['reset_subject'] ?? 'Reset password',
+            [
+                '{regkey}'     => $regkey,
+                '{verify_url}' => $link
+            ]
+        );
+    }
+
+
+    /**
+     * Sends a registration verification email with a unique link.
+     *
+     * @param string $toEmail Recipient's email address
+     * @param string $regkey Unique registration key
+     * @return bool True if email sent successfully, false otherwise
+     */
+    protected function SendRegistrationEmail (string $toEmail, string $regkey): bool
+    {
+
+        $link = $this->siteUrl . $this->siteScript . '?ah_action=remote_verify&email=' . urlencode($toEmail) . '&code=' . urlencode($regkey);
+
+        return $this->SendTemplateEmail(
+            $toEmail,
+            __DIR__ . '/templates/email_regcheck.html',
+            $this->texts['verify_subject'] ?? 'Email verification',
+            [
+                '{regkey}'     => $regkey,
+                '{verify_url}' => $link
+            ]
+        );
+
+    }
+
+
+    /**
+     * Sends an HTML email using a template and external command.
+     *
+     * @param string $toEmail Recipient's email address
+     * @param string $templateFile Absolute path to the HTML template
+     * @param string $subject Email subject
+     * @param array $placeholders Array of placeholder => replacement (e.g. '{regkey}' => '1234')
+     * @return bool True if mail sent successfully, false otherwise
+     */
+    protected function SendTemplateEmail (string $toEmail, string $templateFile, string $subject, array $placeholders): bool
+    {
+
+        $cfg = $this->config['email_config'] ?? null;
+
+        if (!$cfg || empty($cfg['email_command'])) {
+            return false;
+        }
+
+        if (!file_exists($templateFile)) {
+            return false;
+        }
+
+        $templateContent = file_get_contents($templateFile);
+        if ($templateContent === false) {
+            return false;
+        }
+
+        $placeholders['{email}']     = $toEmail;
+        $placeholders['{site_name}'] = $this->config['site_name'] ?? '';
+
+        $body = strtr($templateContent, $placeholders);
+
+        $tmpFile = tempnam(sys_get_temp_dir(), 'mail_');
+        file_put_contents($tmpFile, $body);
+
+        $command = strtr($cfg['email_command'], [
+            '{to}'       => $toEmail,
+            '{subject}'  => addslashes($subject) . ' - ' . $this->config['site_name'],
+            '{bodyfile}' => $tmpFile
+        ]);
+
+        exec($command, $output, $exitCode);
+
+        unlink($tmpFile);
+
+        return $exitCode === 0;
+
+    }
     
 }
