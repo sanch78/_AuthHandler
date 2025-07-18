@@ -69,6 +69,8 @@ class AuthHandler
 
         $this->InitializeSqlConnection();
 
+        $this->LoginUser();
+
         if (($this->config['auto_request_handler'] ?? true)) {
             $this->HandleRequest();
         }
@@ -115,54 +117,7 @@ class AuthHandler
 		$this->langLoaded = true;
 
     }
-
-
-	/*
-    * Lazily initializes HybridAuth instance
-    */
-    protected function InitializeHybridAuth ()
-    {
-
-        if ($this->hybridInstance !== null) return;
-
-        if (empty($this->config['hybridauth_config'])) {
-            throw new Exception('HybridAuth config missing.');
-        }
-
-        $this->hybridInstance = new \Hybridauth\Hybridauth($this->config['hybridauth_config']);
-
-    }
-
-    /*
-    * Returns an adapter for a given provider (e.g. 'Google'), without authenticating
-    * @param string $providerName
-    * @return \Hybridauth\Adapter\AdapterInterface
-    */
-    public function GetHybridAdapter ($providerName)
-    {
-
-        $this->InitializeHybridAuth();
-
-        if (empty($this->config['hybridauth_config']['providers'][$providerName]['enabled'])) {
-            throw new Exception("Provider '$providerName' is not enabled.");
-        }
-
-        return $this->hybridInstance->getAdapter($providerName);
-
-    }
-
-    /*
-    * Returns the currently logged-in user, or null if not logged in
-    * Placeholder: always returns null for now
-    * @return array|null
-    */
-    public function GetCurrentUser ()
-    {
-
-        return null;
-
-    }
-
+  
 
     /**
      * Handles incoming requests and routes them to the appropriate method.
@@ -263,9 +218,9 @@ class AuthHandler
         $email    = trim($data['email'] ?? '');
         $password = $data['password'] ?? '';
 
-        if (!$password) $errors['password'] = 'missing_fields';
-
         if (!$email) $errors['email'] = 'missing_fields';
+
+        if (!$password) $errors['password'] = 'missing_fields';
 
         if (!empty($errors)) {
             return [
@@ -278,23 +233,26 @@ class AuthHandler
 
         if (!$user) $errors['email'] = 'cant_login';
 
+        elseif (empty($user['user_password'])) $errors['password'] = 'password_not_set';
+        
         elseif (!password_verify($password, $user['user_password'])) $errors['password'] = 'cant_login';
-
+        
         elseif (!empty($user['user_regkey'])) $errors['email'] = 'not_verified';
-
-        $token = $user['user_token'] ?? null;
-
-        if (!$token) {
-            $this->UpdateUserFieldsById($user['key'], [
-                'user_token' => $this->GenerateUniqueToken()
-            ]);
-        }
 
         if (!empty($errors)) {
             return [
                 'success' => false,
                 'errors'  => $errors
             ];
+        }
+
+        $token = $user['user_token'] ?? null;
+
+        if (!$token) {
+            $token = $this->GenerateUniqueToken();
+            $this->UpdateUserFieldsById($user['key'], [
+                'user_token' => $token
+            ]);
         }
 
         $this->LoginUser($token);
@@ -305,6 +263,7 @@ class AuthHandler
         ];
 
     }
+
 
 
     /**
@@ -338,17 +297,15 @@ class AuthHandler
 
         $errors = [];
 
-        $email    = trim($data['email'] ?? '');
+        $email = trim($data['email'] ?? '');
         $password = $data['password'] ?? '';
-        $confirm  = $data['confirm'] ?? '';
+        $confirm = $data['confirm'] ?? '';
 
         if (empty($email)) $errors['email'] = 'missing_fields';
 
         elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) $errors['email'] = 'email_invalid';
-        
-        if (empty($password)) $errors['password'] = 'missing_fields';
 
-        elseif (strlen($password) < 8) $errors['password'] = 'password_too_short';
+        if (empty($password)) $errors['password'] = 'missing_fields';
 
         elseif (!isset($errors['password']) && !empty($this->config['password_pattern'])) {
             $pattern = '#'.$this->config['password_pattern'].'#';
@@ -359,7 +316,24 @@ class AuthHandler
 
         elseif ($password !== $confirm) $errors['password'] = 'password_mismatch';
 
-        if (!sizeof($errors) && $this->UserExistsByEmail($email)) $errors['email'] = 'email_exists';
+        if ($this->config['recaptcha_type'] === 'v2') {
+            if (!isset($_SESSION['registration_seed']) || $data['seed'] !== $_SESSION['registration_seed']) {
+                unset($_SESSION['recaptcha_token']);
+            }
+            if (!$this->VerifyRecaptchaToken($data['recaptcha_token'])) {
+                $errors['recaptcha'] = 'recaptcha_invalid';
+            }
+        }
+
+        $_SESSION['registration_seed'] = $data['seed'] ?? null;
+
+        $user = $this->FindUserByFields(['user_email' => $email]);
+
+        if (!$errors && $user) {
+            if (!empty($user['user_password'])) {
+                $errors['email'] = 'email_exists';
+            }
+        }
 
         if (!empty($errors)) {
             return [
@@ -367,22 +341,38 @@ class AuthHandler
                 'errors'  => $errors
             ];
         }
-        
+
         $hash = password_hash($password, PASSWORD_DEFAULT);
+        $regkey = str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT);
 
-        $user = $this->InsertUser([
-            'user_email' => $email,
-            'user_password' => $hash,
-            'created_at' => date('Y-m-d H:i:s')
-        ]);
+        if ($user) {
 
-        if (!$user || empty($user['key'])) return ['success' => false, 'errors'  => ['email' => 'registration_failed']];
+            $this->UpdateUserFieldsById($user['key'], [
+                'user_password' => $hash,
+                'user_regkey' => $regkey
+            ]);
 
-        $this->SendRegistrationEmail($email, $user['user_regkey']);
+        } else {
+
+            $user = $this->InsertUser([
+                'user_email' => $email,
+                'user_password' => $hash,
+                'created_at' => date('Y-m-d H:i:s'),
+                'user_regkey' => $regkey
+            ]);
+
+            if (!$user || empty($user['key'])) {
+                return ['success' => false, 'errors' => ['email' => 'registration_failed']];
+            }
+
+        }
+
+        $this->SendRegistrationEmail($email, $regkey);
 
         return ['success' => true];
 
     }
+
 
 
     /**
@@ -665,6 +655,7 @@ class AuthHandler
             'langCode' => $this->config['lang_code'] ?? 'en',
             'providers' => $enabledProviders,
             'allowRegistration' => $this->config['allow_registration'] ?? false,
+            'injectResetButton' => $this->config['inject_reset_button'] ?? false,
             'providersOnRegistration' => $this->config['providers_on_registration'] ?? false,
             'mode' => $this->config['mode'] ?? 'modal',
             'buttonsTarget' => $this->config['buttons_target'] ?? null,
@@ -674,6 +665,8 @@ class AuthHandler
             'onLogout' => !empty($callbacks['onLogout']) ? "_{$jsObject}OnLogout" : null,
             'siteUrl' => $this->siteUrl,
             'siteScript' => $this->siteScript,
+            'recaptchaSitekey' => !empty($this->config['recaptcha_sitekey']) ? $this->config['recaptcha_sitekey'] : null,
+            'recaptchaType' => !empty($this->config['recaptcha_type']) ? $this->config['recaptcha_type'] : null,
             'myObject' => $jsObject
         ], function ($v) {
             return $v !== null;
@@ -780,12 +773,19 @@ class AuthHandler
      * @param string $token The authentication token
      * @return bool True if login succeeded, false otherwise
      */
-    public function LoginUser (string $token): bool
+    public function LoginUser (string $token = null): bool
     {
+
+        if (!empty($_SESSION['auth_token']) && $token === null) $token = $_SESSION['auth_token'];
+
+        if (empty($token)) return false;
 
         $user = $this->FindUserByFields(['user_token' => $token]);
 
-        if (!$user) return false;
+        if (!$user) {
+            $this->LogoutUser();
+            return false;
+        }
 
         $_SESSION['auth_token'] = $token;
         $_SESSION['auth_user'] = $user;
@@ -812,43 +812,27 @@ class AuthHandler
 
 
     /**
-     * Returns the currently logged-in user's full data, or null if not logged in.
-     *
-     * @return array|null Associative user row or null if not authenticated
-     */
-    public function GetLoggedInUser (): ?array
-    {
-
-        if (!isset($_SESSION['auth_token'])) {
-            return null;
-        }
-
-        return $this->FindUserByFields(['user_token' => $_SESSION['auth_token']]);
-
-    }
-
-
-    /**
      * Handles the OAuth login process for a specific provider.
      *
-     * @param string $providerName The name of the OAuth provider (e.g., Google).
+     * @param string $providerName The name of the OAuth provider (e.g., Google, Facebook).
      * @param bool $isCallback Indicates if the request is a callback from the provider.
      */
     protected function HandleOAuthLogin ($providerName, $isCallback = false)
     {
-
         $providerName = ucfirst(strtolower($providerName));
-        if ($providerName !== 'Google') {
-            http_response_code(400);
-            exit('Only Google provider is supported.');
-        }
 
         $config = $this->config['hybridauth_config'] ?? [];
-        $config['callback'] = $this->config['site_url'] . $this->config['site_script'] . '?ah_action=provider&provider=' . urlencode($providerName) . '&callback=1';
 
         if (empty($config['providers'][$providerName]['enabled'])) {
             http_response_code(403);
             exit('Provider not enabled.');
+        }
+
+        $config['callback'] = $config['providers'][$providerName]['callback'] ?? null;
+
+        if (!$config['callback']) {
+            http_response_code(500);
+            exit('Missing callback URL for provider.');
         }
 
         try {
@@ -873,9 +857,14 @@ class AuthHandler
         $email = $userProfile->email ?? null;
         $providerId = $userProfile->identifier ?? null;
 
-        if (!$email || !$providerId) {
+        if (!$providerId) {
             http_response_code(400);
-            exit('Missing required profile data.');
+            exit('Missing provider identifier.');
+        }
+
+        if (!$email) {
+            // fallback, de célszerűbb inkább hibát dobni
+            $email = strtolower($providerName) . '_' . $providerId . '@oauth.local';
         }
 
         list($table, $fs) = $this->GetSqlMeta();
@@ -886,21 +875,38 @@ class AuthHandler
         ]);
 
         if (!$user) {
-            $result = $this->InsertUser([
-                'user_email' => $email,
-                'provider' => $providerName,
-                'provider_id' => $providerId,
-                'created_at' => time(),
-                'last_login' => time()
-            ]);
+            $existing = $this->FindUserByFields(['user_email' => $email]);
 
-            if (!$result || empty($result['token'])) {
-                http_response_code(500);
-                exit('User insert failed.');
+            if ($existing) {
+                $this->UpdateUserFieldsById($existing['key'], [
+                    'provider'     => $providerName,
+                    'provider_id'  => $providerId,
+                    'last_login'   => time()
+                ]);
+
+                $token = $existing['user_token'];
+                if (!$token) {
+                    $token = $this->GenerateUniqueToken();
+                    $this->UpdateUserFieldsById($existing['key'], [
+                        'user_token' => $token
+                    ]);
+                }
+            } else {
+                $result = $this->InsertUser([
+                    'user_email'   => $email,
+                    'provider'     => $providerName,
+                    'provider_id'  => $providerId,
+                    'created_at'   => time(),
+                    'last_login'   => time()
+                ]);
+
+                if (!$result || empty($result['user_token'])) {
+                    http_response_code(500);
+                    exit('User insert failed.');
+                }
+
+                $token = $result['user_token'];
             }
-
-            $token = $result['user_token'];
-
         } else {
             $token = $user['user_token'];
             $this->UpdateUserFieldsById($user['key'], [
@@ -967,8 +973,11 @@ class AuthHandler
                         {$this->sqlConfig['fieldset']['user_regkey']} TEXT,
                         {$this->sqlConfig['fieldset']['user_resetkey']} TEXT,
                         {$this->sqlConfig['fieldset']['user_token']} TEXT,
+                        {$this->sqlConfig['fieldset']['provider']} TEXT,
+                        {$this->sqlConfig['fieldset']['provider_id']} TEXT,
                         {$this->sqlConfig['fieldset']['created_at']} TEXT,
-                        {$this->sqlConfig['fieldset']['last_login']} TEXT
+                        {$this->sqlConfig['fieldset']['last_login']} TEXT,
+                        {$this->sqlConfig['fieldset']['last_update']} TEXT
                     );
                 ");
             }
@@ -1180,10 +1189,6 @@ class AuthHandler
 
         list($table, $fs) = $this->GetSqlMeta();
 
-        if (!isset($fields['user_regkey'])) {
-            $fields['user_regkey'] = str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT);
-        }
-
         if (!isset($fields['user_token'])) {
             $fields['user_token'] = $this->GenerateUniqueToken();
         }
@@ -1192,7 +1197,7 @@ class AuthHandler
         $values  = [];
         $params  = [];
 
-        foreach ($fields as $key => $value) {
+       foreach ($fields as $key => $value) {
             if (!isset($fs[$key])) continue;
             $col = $fs[$key];
             $columns[] = $col;
@@ -1200,18 +1205,24 @@ class AuthHandler
             $params[':' . $col] = $value;
         }
 
+        if (isset($fs['last_update'])) {
+            $col = $fs['last_update'];
+            $columns[] = $col;
+            $values[]  = 'CURRENT_TIMESTAMP';
+        }
+
         if (empty($columns)) return null;
 
         $sql = 'INSERT INTO ' . $table .
             ' (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ')';
 
+
         $stmt = $this->pdo->prepare($sql);
         if (!$stmt->execute($params)) return null;
 
         return [
-            'key'     => (int)$this->pdo->lastInsertId(),
-            'user_regkey' => $fields['user_regkey'] ?? null,
-            'user_token'  => $fields['user_token'] ?? null
+            'key' => (int)$this->pdo->lastInsertId(),
+            'user_token' => $fields['user_token'] ?? null
         ];
 
     }
@@ -1244,6 +1255,10 @@ class AuthHandler
             $params[":{$col}"] = $value;
         }
 
+        if (isset($fs['last_update'])) {
+            $assignments[] = $fs['last_update'] . " = CURRENT_TIMESTAMP";
+        }
+
         if (empty($assignments)) {
             return false;
         }
@@ -1252,6 +1267,7 @@ class AuthHandler
         $stmt = $this->pdo->prepare($sql);
 
         return $stmt->execute($params);
+
     }
 
 
@@ -1351,5 +1367,33 @@ class AuthHandler
         return $exitCode === 0;
 
     }
+
+    function VerifyRecaptchaToken ($token) {
+
+        if (!isset($this->config['recaptcha_secret'])) return true;
+
+        if (!isset($this->config['recaptcha_type'])) return true;
+
+        if ($this->config['recaptcha_type'] !== 'v2') return true;
+
+        if (isset($_SESSION['recaptcha_token'])) return true;
+
+        $secret = $this->config['recaptcha_secret'] ?? null;
+
+        if (empty($token)) return false;
+
+        $response = file_get_contents(
+            'https://www.google.com/recaptcha/api/siteverify?secret=' .
+            urlencode($secret) . '&response=' . urlencode($token)
+        );
+
+        $_SESSION['recaptcha_token'] = $token;
+
+        $result = json_decode($response, true);
+
+        return !empty($result['success']);
+
+    }
+
     
 }

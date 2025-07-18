@@ -68,6 +68,17 @@
 	background-color: #f8d7da;
 	color: #842029;
 	border: 1px solid #f5c2c7;
+	border-left: 4px solid #842029;
+	padding: 0.5rem 1rem;
+	border-radius: 0.25rem;
+	margin-bottom: 0.5rem;
+}
+
+.authhandler-notice.authhandler-success-notice {
+	background-color: #d1e7dd;
+	color: #0f5132;
+	border: 1px solid #badbcc;
+	border-left: 4px solid #0f5132;
 	padding: 0.5rem 1rem;
 	border-radius: 0.25rem;
 	margin-bottom: 0.5rem;
@@ -226,7 +237,7 @@
 	border-radius: 0.25rem;
 }
 
-.authhandler-reset-suggestion {
+.authhandler-suggestion {
 	margin-top: 8px;
 	padding: 10px;
 	border: 1px dashed #dc3545;
@@ -236,14 +247,20 @@
 	text-align: center;
 }
 
-.authhandler-reset-suggestion a {
+.authhandler-suggestion a {
 	color: #dc3545;
 	text-decoration: none;
 	cursor: pointer;
 }
 
-.authhandler-reset-suggestion a:hover {
+.authhandler-suggestion a:hover {
 	text-decoration: underline;
+}
+
+#recaptcha-container {
+	margin: 0.5rem 0;
+	display: flex;
+	justify-content: center;
 }
 
 @media (max-width: 575.98px) {
@@ -251,5 +268,4 @@
         flex: 0 0 20%; 
     }
 }
-
 

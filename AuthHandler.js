@@ -25,6 +25,8 @@ class AuthHandler {
 
         this.config = Object.assign({}, defaultConfig, config);
 
+        if (!this.config.recaptchaSitekey || !this.config.recaptchaType) this.config.recaptchaType = null;
+
         this.siteUrl = this.config.siteUrl || window.location.origin + window.location.pathname;
         this.siteScript = this.config.siteScript || window.location.pathname;
         this.langCode = this.config.langCode;
@@ -110,18 +112,71 @@ class AuthHandler {
 
     }
 
-
+    
     /**
-     * Checks if the user is logged in.
-     * @returns {boolean}
+     * Renders the login button.
+     * @returns {HTMLElement} The login button element.
      */
-    isLoggedIn () {
+    renderLoginButton () {
 
-        return !!this.userToken;
+        const btn = this._createButton(
+            this.getText('login_submit', 'Sign in'),
+            () => this.login(),
+            'authhandler-trigger-login-button'
+        );
+
+        return btn;
 
     }
 
-    
+    /**
+     * Renders the registration button.
+     * @returns {HTMLElement} The register button element.
+     */
+    renderRegisterButton () {
+
+        const btn = this._createButton(
+            this.getText('registration_submit', 'Sign up'),
+            () => this.registration(),
+            'authhandler-trigger-register-button'
+        );
+
+        return btn;
+
+    }
+
+    /**
+     * Renders the reset password button.
+     * @returns {HTMLElement} The reset password button element.
+     */
+    renderResetButton () {
+
+        const btn = this._createButton(
+            this.getText('reset_submit', 'Reset password'),
+            () => this.resetPassword(),
+            'authhandler-trigger-reset-button'
+        );
+
+        return btn;
+
+    }
+
+    /**
+     * Renders the logout button.
+     * @returns {HTMLElement} The logout button element.
+     */
+    renderLogoutButton () {
+
+        const btn = this._createButton(
+            this.getText('logout', 'Logout'),
+            () => this.logout(),
+            'authhandler-trigger-logout-button'
+        );
+
+        return btn;
+
+    }
+
     /**
      * Injects the appropriate authentication buttons into the target container.
      * Shows "Logout" if user is logged in, otherwise shows "Login" and optionally "Register".
@@ -137,19 +192,12 @@ class AuthHandler {
 
         container.innerHTML = '';
 
-        if (this.isLoggedIn()) {
-            const btn = this._createButton(this.getText('logout', 'Logout'), () => this.logout(), 'authhandler-trigger-logout-button');
-            container.appendChild(btn);
+        if (this.userToken) {
+            container.appendChild(this.renderLogoutButton());
         } else {
-            const loginBtn = this._createButton(this.getText('login_submit', 'Sign in'), () => this.login(), 'authhandler-trigger-login-button');
-            const regBtn = this._createButton(this.getText('registration_submit', 'Sign up'), () => this.registration(), 'authhandler-trigger-register-button');
-            const resetBtn = this._createButton(this.getText('reset_submit', 'Reset password'), () => this.resetPassword(), 'authhandler-trigger-reset-button');
-
-            container.appendChild(loginBtn);
-            container.appendChild(resetBtn);
-            if (this.config.allowRegistration) {
-                container.appendChild(regBtn);
-            }
+            container.appendChild(this.renderLoginButton());
+            if (this.config.injectResetButton) container.appendChild(this.renderResetButton());
+            if (this.config.allowRegistration) container.appendChild(this.renderRegisterButton());
         }
 
     }
@@ -239,8 +287,11 @@ class AuthHandler {
             return;
         }
 
-        let fieldIds = ['email', 'password'];
+        const shownErrors = [];
+
+        let fieldIds = ['email', 'password', 'recaptcha'];
         if (formType === 'verify' || formType === 'reset2') fieldIds = ['code'];
+        if (formType === 'registration' && this.config.recaptchaType) fieldIds.push('recaptcha');
 
         fieldIds.forEach(fieldId => {
 
@@ -249,39 +300,49 @@ class AuthHandler {
 
             if (!noticeWrap || !p) return;
 
-            const hasError = typeof result === 'object' && result[fieldId];
+            const errorKey = result[fieldId];
+            const hasError = typeof result === 'object' && errorKey;
 
             if (hasError) {
-                const errorKey = result[fieldId];
-                p.textContent = this.getText(errorKey, 'An error occurred.');
-                noticeWrap.classList.add('authhandler-error-notice', 'active');
 
-                if (formType === 'login') {
-                    const existing = noticeWrap.querySelector('.authhandler-reset-suggestion');
-                    if (existing) existing.remove();
+                if (!shownErrors.includes(errorKey)) {
+                    shownErrors.push(errorKey);
 
-                    const resetElem = this._addPasswordResetLink();
-                    if (resetElem) noticeWrap.appendChild(resetElem);
+                    p.textContent = this.getText(errorKey, 'An error occurred.');
+                    noticeWrap.classList.add('authhandler-error-notice');
 
-                    noticeWrap.style.display = 'block';
+                    if (formType === 'login' || (formType === 'registration' && errorKey === 'email_exists')) {
+                        const existing = noticeWrap.querySelector('.authhandler-reset-suggestion');
+                        if (existing) existing.remove();
+
+                        const resetElem = this._addSuggestion(errorKey === 'password_not_set' ? 'register' : 'reset');
+                        if (resetElem) noticeWrap.appendChild(resetElem);
+                    }
+                    if (formType === 'login' || (formType === 'registration' && errorKey === 'recaptcha_invalid')) noticeWrap.style.display = 'block';
                 }
+
             } else {
-                if (formType === 'login') {
+
+                if (formType === 'login' || (formType === 'registration' && fieldId === 'recaptcha')) {
                     if (!noticeWrap.hasAttribute('data-persistent')) {
                         p.innerHTML  = '';
                     }
-                    noticeWrap.classList.remove('authhandler-error-notice', 'active');
-                    if (formType === 'login') {
-                        if (!noticeWrap.hasAttribute('data-persistent')) {
-                            noticeWrap.style.display = 'none';
-                        }
+                    noticeWrap.classList.remove('authhandler-error-notice');
+                    if (!noticeWrap.hasAttribute('data-persistent')) {
+                        noticeWrap.style.display = 'none';
+                    }
+
+                    if (fieldId === 'recaptcha') {
+                        const recaptchaContainer = document.getElementById('recaptcha-container');
+                        recaptchaContainer.innerHTML = '';
+                        recaptchaContainer.style.display = 'none';
                     }
                 } else {
                     const defaultKey = `${formType}_${fieldId}_notice`;
                     p.innerHTML  = this.getText(defaultKey, '');
                     noticeWrap.classList.remove('authhandler-error-notice');
-                    noticeWrap.classList.add('active');
                 }
+
             }
         });
 
@@ -341,7 +402,7 @@ class AuthHandler {
 	 */
 	async _loadLang () {
 
-        const langUrl = this.modulePath + 'lang.json?';
+        const langUrl = this.modulePath + 'lang.json?' + new Date().getTime();
 
 		try {
 			const res = await fetch(langUrl);
@@ -408,7 +469,17 @@ class AuthHandler {
                 container.appendChild(formEl);
             }
         } else {
+
             this._showModal(type, formEl);
+
+            const recaptchaContainer = document.getElementById('recaptcha-container');
+            if (recaptchaContainer) {
+                grecaptcha.render('recaptcha-container', {
+                    sitekey: this.config.recaptchaSitekey,
+                    theme: 'light'
+                });
+            }
+
         }
 
     }
@@ -431,9 +502,10 @@ class AuthHandler {
 
         if (data?.email) {
             emailNotice.setAttribute('data-persistent', '1');
-            emailNotice.style.display = '';
-            if (data.from === 'verify') emailNotice.innerHTML = `<p>${this.getText('verify_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
-            if (data.from === 'reset') emailNotice.innerHTML = `<p>${this.getText('reset_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
+            emailNotice.style.display = 'block';
+            emailNotice.className += ' authhandler-success-notice';
+            if (data.type === 'verify') emailNotice.innerHTML = `<p>${this.getText('verify_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
+            if (data.type === 'reset') emailNotice.innerHTML = `<p>${this.getText('reset_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
         } else {
             emailNotice.innerHTML = `<p></p>`;
         }
@@ -502,14 +574,30 @@ class AuthHandler {
             email.readOnly = true;
         }
 
+        form.append(emailNotice, email, passwordNotice, password, confirm);
+
+        if (this.config.recaptchaType === 'v2') {
+            const captchaNotice = document.createElement('div');
+            captchaNotice.className = 'authhandler-notice';
+            captchaNotice.setAttribute('data-feedback-for', 'recaptcha');
+            captchaNotice.innerHTML = '<p></p>';
+            captchaNotice.style.display = 'none';
+
+            const captcha = document.createElement('div');
+            captcha.id = 'recaptcha-container';
+            form.append(captchaNotice, captcha);
+        }
+
         const btn = document.createElement('button');
         btn.type = 'submit';
         btn.className = 'authhandler-form-button';
         btn.textContent = this.getText('registration_submit', 'Sign up');
-        form.append(emailNotice, email, passwordNotice, password, confirm, btn);
+        form.appendChild(btn);
 
         const providers = this._renderProviderButtons('registration_providers_notice', 'You can also register with one of the following providers:');
         if (providers) form.appendChild(providers);
+
+        this.registrationSeed = Math.random().toString(36).substring(2, 15);
 
         form.addEventListener('submit', e => {
             e.preventDefault();
@@ -997,8 +1085,14 @@ class AuthHandler {
             ah_action: 'register',
             email: email?.value.trim() || '',
             password: password?.value || '',
-            confirm: confirm?.value || ''
+            confirm: confirm?.value || '',
+            seed: this.registrationSeed
         };
+
+        if (this.config.recaptchaType === 'v2') {
+            const token = document.querySelector('[name="g-recaptcha-response"]')?.value || '';
+            payload.recaptcha_token = token;
+        }
 
         this._submitFormHelper(
             form,
@@ -1015,7 +1109,6 @@ class AuthHandler {
             null,
             'registration'
         );
-
 
     }
 
@@ -1048,7 +1141,7 @@ class AuthHandler {
                     const modal = bootstrap.Modal.getInstance(modalEl);
                     if (modal) modal.hide();
                 }
-                this._renderForm('login', { email: email, from: 'verify' });
+                this._renderForm('login', { email: email, type: 'verify' });
             },
             null,
             'verify'
@@ -1094,7 +1187,7 @@ class AuthHandler {
                 if (typeof onError === 'function') {
                     onError(response);
                 } else {
-                    if (formType) this.showFormFeedback(formType, response.errors || {});
+                    this.showFormFeedback(formType, response.errors || {});
                 }
             }
         })
@@ -1205,7 +1298,7 @@ class AuthHandler {
                     const modal = bootstrap.Modal.getInstance(modalEl);
                     if (modal) modal.hide();
                 }
-                this._renderForm('login', { email: payload.email, from: 'reset' });
+                this._renderForm('login', { email: payload.email, type: 'reset' });
             },
             null,
             'reset3'
@@ -1213,22 +1306,36 @@ class AuthHandler {
 
     }
 
-    /**
-     * Adds a password reset link to the modal.
-     * @returns {string} - The HTML string for the password reset link
-     */
-    _addPasswordResetLink () {
 
-        if (this.passwordResetLinkUsed) return null;
-        this.passwordResetLinkUsed = true;
+    /**
+     * Adds a context-aware suggestion link to the modal (e.g. password reset or account extension).
+     * @param {'reset'|'register'} type - The type of suggestion to show
+     * @returns {HTMLElement|null} The suggestion container element, or null if already used
+     */
+    _addSuggestion (type) {
+
+        if (this.suggestionUsed) return null;
+        this.suggestionUsed = true;
 
         const container = document.createElement('div');
-        container.className = 'authhandler-reset-suggestion';
+        container.className = 'authhandler-suggestion';
 
         const link = document.createElement('a');
         link.href = 'javascript:void(0);';
-        link.textContent = this.getText('password_reset', 'Click here to reset your password');
-        link.className = 'authhandler-reset-link';
+
+        let textKey, callback, className;
+
+        if (type === 'reset') {
+            textKey = 'password_reset_suggestion';
+            callback = this.resetPassword?.bind(this);
+        } else if (type === 'register') {
+            textKey = 'registration_suggestion';
+            callback = this.registration?.bind(this);
+        } else {
+            return null;
+        }
+
+        link.textContent = this.getText(textKey, 'Click here');
 
         link.onclick = (e) => {
             e.preventDefault();
@@ -1239,8 +1346,8 @@ class AuthHandler {
                 if (modal) modal.hide();
             }
 
-            if (typeof this.resetPassword === 'function') {
-                this.resetPassword();
+            if (typeof callback === 'function') {
+                callback();
             }
         };
 

@@ -92,12 +92,16 @@
     "hu": "Bejelentkezés Facebook-kal"
   },
   "cant_login": {
-    "en": "Cannot login with the provided credentials. If you forgot your password, <a href=\"javascript:resetPassword()\">click here to request a new password.</a>",
-    "hu": "A megadott adatokkal nem lehet bejelentkezni. Ha elfelejtette a jelszavát, <a href=\"javascript:resetPassword()\">ide kattintva kérhet új jelszót.</a>"
+    "en": "Cannot login with the provided credentials.",
+    "hu": "A megadott adatokkal nem lehet bejelentkezni. "
   },
-  "password_reset": {
+  "password_reset_suggestion": {
     "en": "If you forgot your password, click here to request a new password.",
     "hu": "Ha elfelejtetted a jelszavad, ide kattintva kérhetsz új jelszót."
+  },
+  "registration_suggestion": {
+    "en": "If you want to register with email/password, click here.",
+    "hu": "Ha szeretnél email/jelszóval is regisztrálni, kattints ide."
   },
   "missing_fields": {
     "en": "Please fill in all fields.",
@@ -110,10 +114,6 @@
   "email_invalid": {
     "en": "Invalid email address.",
     "hu": "Érvénytelen email cím."
-  },
-  "password_too_short": {
-    "en": "Password is too short.",
-    "hu": "A jelszó túl rövid."
   },
   "password_mismatch": {
     "en": "Passwords do not match.",
@@ -130,6 +130,10 @@
   "not_verified": {
     "en": "Email not verified. Please check your email for the verification link sent to the address you provided during registration.",
     "hu": "Email nincs megerősítve. A regisztráció során megadott email címre küldött emailben található linken tudja megerősíteni az email címét."
+  },
+  "password_not_set": {
+    "en": "This account was created with an external login. Please log in using the same method, or register with an email address (password) to use password/email login as well.",
+    "hu": "Ez a fiók külső bejelentkezéssel lett létrehozva. Jelentkezz be ugyanazzal a módszerrel, vagy regisztrálj email címmel (jelszóval) és használhatod a jelszó/email bejelentkezést is." 
   },
   "registration_failed": {
     "en": "Registration failed. Please try again.",
@@ -230,5 +234,9 @@
   "reset_providers_notice": {
     "en": "If you registered with one of the following providers, you do not need to manage your password, just click the button for the respective provider:",
     "hu": "Ha a lenti szolgáltatók valamelyikével regisztráltál, akkor nem kell a jelszavadat kezelned, csak klikkelj az adott szolgáltatóhoz rendelt gombra:"
+  },
+  "recaptcha_invalid": {
+    "en": "Invalid reCAPTCHA. Please try again.",
+    "hu": "Érvénytelen reCAPTCHA. Kérlek, próbáld újra."
   }
 }
