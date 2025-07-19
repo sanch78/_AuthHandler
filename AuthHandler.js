@@ -1,7 +1,6 @@
 class AuthHandler {
 
 	constructor ({
-	modulePath,
 	config = {},
     token = null
     }) {
@@ -10,11 +9,10 @@ class AuthHandler {
             throw new Error('SimpleMessage: "modulePath" is required.');
         }
 
-        this.modulePath = modulePath.endsWith('/') ? modulePath : modulePath + '/';
-
         this.userToken = token;
 
         const defaultConfig = {
+            autoIninit: true,
             providers: [],
             allowRegistration: true,
             mode: 'modal',
@@ -25,15 +23,27 @@ class AuthHandler {
 
         this.config = Object.assign({}, defaultConfig, config);
 
+        if (!this.config.modulePath) {
+            throw new Error('AuthHandler: "modulePath" is required.');
+        }
+        this.modulePath = this.config.modulePath.endsWith('/') ? this.config.modulePath : this.config.modulePath + '/';
+
         if (!this.config.recaptchaSitekey || !this.config.recaptchaType) this.config.recaptchaType = null;
 
+        this.debug = this.config.debug || false;
         this.siteUrl = this.config.siteUrl || window.location.origin + window.location.pathname;
         this.siteScript = this.config.siteScript || window.location.pathname;
         this.langCode = this.config.langCode;
 
         this.langData = {};
         this._loadLang().then(() => {
+
+            if (this.config.langData && typeof langData === 'object') {
+                this.setLangData(this.config.langData);
+            }
+
             if (this.config.autoIninit) this.init();
+
         });
     
     }
@@ -402,7 +412,7 @@ class AuthHandler {
 	 */
 	async _loadLang () {
 
-        const langUrl = this.modulePath + 'lang.json?' + new Date().getTime();
+        const langUrl = this.modulePath + 'lang.json' + (this.debug ? '?' + Date.now() : '');
 
 		try {
 			const res = await fetch(langUrl);

@@ -10,7 +10,7 @@ class AuthHandler
     protected $config = [];
     protected $sqlConfig = [];
     protected $hybridInstance = null;
-    protected $jsObject = 'authHandler';
+    protected $jsObject;
     protected $lang;
     protected $langLoaded = false;
     protected $texts = [];
@@ -20,7 +20,7 @@ class AuthHandler
     protected $lastActionResult = null;
     protected $lastActionData = null;
 
-    public function __construct($config) {
+    public function __construct ($config) {
 
         if (is_array($config)) {
             $this->config = $config;
@@ -66,6 +66,7 @@ class AuthHandler
         if (empty($this->config['on_logout'])) $this->config['on_logout'][] = "window.location.href = '{$this->siteUrl}';";
         
         $this->LoadLang($this->lang);
+        $this->SetLangData($config['lang_data'] ?? []);
 
         $this->InitializeSqlConnection();
 
@@ -74,6 +75,7 @@ class AuthHandler
         if (($this->config['auto_request_handler'] ?? true)) {
             $this->HandleRequest();
         }
+
     }
 
 
@@ -108,13 +110,31 @@ class AuthHandler
 			return;
 		}
 
-		$texts = [];
 		foreach ($data as $key => $translations) {
-			$texts[$key] = $translations[$langCode] ?? $translations['en'] ?? '';
+			$this->texts[$key] = $translations[$langCode] ?? $translations['en'] ?? '';
 		}
 
-		$this->texts = $texts;
 		$this->langLoaded = true;
+
+    }
+
+
+    /**
+     * Overrides or extends the current language texts with the given array.
+     *
+     * @param array $overrides Associative array of key => translation
+     * @return void
+     */
+    public function SetLangData (array $overrides): void
+    {
+
+        if (!$this->langLoaded) {
+            $this->LoadLang();
+        }
+
+        foreach ($overrides as $key => $value) {
+            $this->texts[$key] = $value;
+        }
 
     }
   
@@ -608,17 +628,34 @@ class AuthHandler
 
 
     /**
-     * Renders a JS snippet that instantiates the AuthHandler class.
+	 * Echoes the required JS and CSS includes for AuthHandler.
+	 *
+	 * @param string $basePath Relative or absolute path prefix to JS/CSS directory
+	 * @return void
+	 */
+	function AssetsInjector ()
+	{
+
+        $return = '';
+
+		$return = '<link rel="stylesheet" href="' . $this->modulePath . 'AuthHandler.css' . ($this->config['debug'] ? '?' . time() : '') . '">';
+		$return .= '<script src="' . $this->modulePath . 'AuthHandler.js' . ($this->config['debug'] ? '?' . time() : '') . '"></script>' . "\n";
+
+		echo $return;
+
+	}
+
+
+    /**
+     * Renders a JS snippet that instantiates the class.
      *
      * Automatically sets autoInit = true if not explicitly disabled in config.
      * Skips null config entries to avoid unnecessary JSON noise.
      *
      * @return void
      */
-    public function RenderAuthHandlerInjector () {
+    public function Injector () {
 
-        $jsObject = $this->config['js_object'] ?? 'authHandler';
-        $modulePath = $this->config['module_path'] ?? './AuthHandler';
         $autoInit = $this->config['auto_init'] ?? true;
 
         $this->FeedbackScriptInjector();
@@ -652,6 +689,7 @@ class AuthHandler
         }
 
         $config = array_filter([
+            'debug' => $this->config['debug'] ?? false,
             'langCode' => $this->config['lang_code'] ?? 'en',
             'providers' => $enabledProviders,
             'allowRegistration' => $this->config['allow_registration'] ?? false,
@@ -660,14 +698,14 @@ class AuthHandler
             'mode' => $this->config['mode'] ?? 'modal',
             'buttonsTarget' => $this->config['buttons_target'] ?? null,
             'autoIninit' => $autoInit,
-            'onInit'  => !empty($callbacks['onInit']) ? "_{$jsObject}OnInit" : null,
-            'onLogin' => !empty($callbacks['onLogin']) ? "_{$jsObject}OnLogin" : null,
-            'onLogout' => !empty($callbacks['onLogout']) ? "_{$jsObject}OnLogout" : null,
+            'onInit'  => !empty($callbacks['onInit']) ? "_{$this->jsObject}OnInit" : null,
+            'onLogin' => !empty($callbacks['onLogin']) ? "_{$this->jsObject}OnLogin" : null,
+            'onLogout' => !empty($callbacks['onLogout']) ? "_{$this->jsObject}OnLogout" : null,
             'siteUrl' => $this->siteUrl,
             'siteScript' => $this->siteScript,
             'recaptchaSitekey' => !empty($this->config['recaptcha_sitekey']) ? $this->config['recaptcha_sitekey'] : null,
             'recaptchaType' => !empty($this->config['recaptcha_type']) ? $this->config['recaptcha_type'] : null,
-            'myObject' => $jsObject
+            'langData' => $this->config['lang_data'] ?? null
         ], function ($v) {
             return $v !== null;
         });
@@ -675,7 +713,7 @@ class AuthHandler
         foreach ($callbacks as $hook => $lines) {
             if (!count($lines)) continue;
 
-            $fnName = "_{$jsObject}" . ucfirst(str_replace('_', '', $hook));
+            $fnName = "_{$this->jsObject}" . ucfirst(str_replace('_', '', $hook));
 
             echo "window.{$fnName} = function (instance) {\n";
             foreach ($lines as $line) {
@@ -684,11 +722,12 @@ class AuthHandler
             echo "};\n";
         }
 
-        echo "window.{$jsObject} = new AuthHandler({\n";
-        echo "modulePath: '" . $modulePath . "',\n";
-        echo "config: " . json_encode($config, JSON_UNESCAPED_SLASHES) . ",\n";
-        echo "token: " . json_encode($_SESSION['auth_token'] ?? null) . "\n";
-        echo "});\n";
+        $return = "window.{$this->jsObject} = new AuthHandler(";
+        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES) . ",\n";
+        $return .= "token: " . json_encode($_SESSION['auth_token'] ?? null) . "\n";
+        $return .= "});\n";
+
+        echo $return;
 
     }
 
@@ -863,7 +902,6 @@ class AuthHandler
         }
 
         if (!$email) {
-            // fallback, de célszerűbb inkább hibát dobni
             $email = strtolower($providerName) . '_' . $providerId . '@oauth.local';
         }
 
@@ -1282,12 +1320,12 @@ class AuthHandler
     {
         $link = $this->siteUrl . $this->siteScript . '?ah_action=remote_reset&email=' . urlencode($toEmail) . '&code=' . urlencode($regkey);
 
-        return $this->SendTemplateEmail(
+        return $this->SendEmailFromTemplate(
             $toEmail,
             __DIR__ . '/templates/email_reset_pasword.html',
             $this->texts['reset_subject'] ?? 'Reset password',
             [
-                '{regkey}'     => $regkey,
+                '{regkey}' => $regkey,
                 '{verify_url}' => $link
             ]
         );
@@ -1306,12 +1344,12 @@ class AuthHandler
 
         $link = $this->siteUrl . $this->siteScript . '?ah_action=remote_verify&email=' . urlencode($toEmail) . '&code=' . urlencode($regkey);
 
-        return $this->SendTemplateEmail(
+        return $this->SendEmailFromTemplate(
             $toEmail,
             __DIR__ . '/templates/email_regcheck.html',
             $this->texts['verify_subject'] ?? 'Email verification',
             [
-                '{regkey}'     => $regkey,
+                '{regkey}' => $regkey,
                 '{verify_url}' => $link
             ]
         );
@@ -1328,12 +1366,12 @@ class AuthHandler
      * @param array $placeholders Array of placeholder => replacement (e.g. '{regkey}' => '1234')
      * @return bool True if mail sent successfully, false otherwise
      */
-    protected function SendTemplateEmail (string $toEmail, string $templateFile, string $subject, array $placeholders): bool
+    protected function SendEmailFromTemplate (string $toEmail, string $templateFile, string $subject, array $placeholders): bool
     {
 
         $cfg = $this->config['email_config'] ?? null;
 
-        if (!$cfg || empty($cfg['email_command'])) {
+        if (!$cfg || empty($cfg['command'])) {
             return false;
         }
 
@@ -1346,7 +1384,7 @@ class AuthHandler
             return false;
         }
 
-        $placeholders['{email}']     = $toEmail;
+        $placeholders['{email}'] = $toEmail;
         $placeholders['{site_name}'] = $this->config['site_name'] ?? '';
 
         $body = strtr($templateContent, $placeholders);
@@ -1354,7 +1392,7 @@ class AuthHandler
         $tmpFile = tempnam(sys_get_temp_dir(), 'mail_');
         file_put_contents($tmpFile, $body);
 
-        $command = strtr($cfg['email_command'], [
+        $command = strtr($cfg['command'], [
             '{to}'       => $toEmail,
             '{subject}'  => addslashes($subject) . ' - ' . $this->config['site_name'],
             '{bodyfile}' => $tmpFile
