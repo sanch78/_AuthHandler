@@ -42,7 +42,7 @@ class AuthHandler
 
         $this->InitSessionIfNeeded();
 
-        foreach (['on_init', 'on_login', 'on_logout'] as $key) {
+        foreach (['on_ready', 'on_login', 'on_logout'] as $key) {
             if (isset($this->config[$key]) && is_string($this->config[$key])) {
                 $trimmed = trim($this->config[$key]);
                 $this->config[$key] = $trimmed ? [ $trimmed ] : [];
@@ -60,10 +60,10 @@ class AuthHandler
 
         if (!empty($this->config['buttons_target'])) {
             $target = json_encode($this->config['buttons_target'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $this->config['on_init'][] = "instance.injectButtons({$target});";
+            $this->config['on_ready'][] = $this->config['on_ready'] ?? "instance.injectButtons({$target});";
         }
-        if (empty($this->config['on_login'])) $this->config['on_login'][] = "window.location.href = '{$this->siteUrl}';";
-        if (empty($this->config['on_logout'])) $this->config['on_logout'][] = "window.location.href = '{$this->siteUrl}';";
+        if (empty($this->config['on_login'])) $this->config['on_login'][] = $this->config['on_login'] ?? "window.location.href = '{$this->siteUrl}';";
+        if (empty($this->config['on_logout'])) $this->config['on_logout'][] = $this->config['on_logout'] ?? "window.location.href = '{$this->siteUrl}';";
         
         $this->LoadLang($this->lang);
         $this->SetLangData($config['lang_data'] ?? []);
@@ -638,8 +638,10 @@ class AuthHandler
 
         $return = '';
 
-		$return = '<link rel="stylesheet" href="' . $this->modulePath . 'AuthHandler.css' . ($this->config['debug'] ? '?' . time() : '') . '">';
-		$return .= '<script src="' . $this->modulePath . 'AuthHandler.js' . ($this->config['debug'] ? '?' . time() : '') . '"></script>' . "\n";
+		$return = '<link rel="stylesheet" href="' . $this->modulePath . 'AuthHandler.css' . (isset($this->config['debug']) ? '?' . time() : '') . '">';
+		$return .= '<script src="' . $this->modulePath . 'AuthHandler.js' . (isset($this->config['debug']) ? '?' . time() : '') . '"></script>';
+        $return .= '<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>';
+
 
 		echo $return;
 
@@ -663,7 +665,7 @@ class AuthHandler
         $callbacks = [];
 
         $map = [
-            'on_init'  => 'onInit',
+            'on_ready'  => 'onReady',
             'on_login' => 'onLogin',
             'on_logout' => 'onLogout'
         ];
@@ -689,8 +691,10 @@ class AuthHandler
         }
 
         $config = array_filter([
+            'modulePath' => $this->modulePath,
             'debug' => $this->config['debug'] ?? false,
             'langCode' => $this->config['lang_code'] ?? 'en',
+            'langData' => $this->config['lang_data'] ?? null,
             'providers' => $enabledProviders,
             'allowRegistration' => $this->config['allow_registration'] ?? false,
             'injectResetButton' => $this->config['inject_reset_button'] ?? false,
@@ -698,14 +702,13 @@ class AuthHandler
             'mode' => $this->config['mode'] ?? 'modal',
             'buttonsTarget' => $this->config['buttons_target'] ?? null,
             'autoIninit' => $autoInit,
-            'onInit'  => !empty($callbacks['onInit']) ? "_{$this->jsObject}OnInit" : null,
+            'onReady'  => !empty($callbacks['onReady']) ? "_{$this->jsObject}OnReady" : null,
             'onLogin' => !empty($callbacks['onLogin']) ? "_{$this->jsObject}OnLogin" : null,
             'onLogout' => !empty($callbacks['onLogout']) ? "_{$this->jsObject}OnLogout" : null,
             'siteUrl' => $this->siteUrl,
             'siteScript' => $this->siteScript,
             'recaptchaSitekey' => !empty($this->config['recaptcha_sitekey']) ? $this->config['recaptcha_sitekey'] : null,
-            'recaptchaType' => !empty($this->config['recaptcha_type']) ? $this->config['recaptcha_type'] : null,
-            'langData' => $this->config['lang_data'] ?? null
+            'recaptchaType' => !empty($this->config['recaptcha_type']) ? $this->config['recaptcha_type'] : null
         ], function ($v) {
             return $v !== null;
         });
@@ -715,16 +718,16 @@ class AuthHandler
 
             $fnName = "_{$this->jsObject}" . ucfirst(str_replace('_', '', $hook));
 
-            echo "window.{$fnName} = function (instance) {\n";
+            echo "window.{$fnName} = function (instance) { ";
             foreach ($lines as $line) {
-                echo "{$line}\n";
+                echo "{$line} ";
             }
             echo "};\n";
         }
 
-        $return = "window.{$this->jsObject} = new AuthHandler(";
-        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES) . ",\n";
-        $return .= "token: " . json_encode($_SESSION['auth_token'] ?? null) . "\n";
+        $return = "window.{$this->jsObject} = new AuthHandler({";
+        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES) . ", ";
+        $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "'";
         $return .= "});\n";
 
         echo $return;
@@ -734,7 +737,7 @@ class AuthHandler
 
     /**
      * Injects feedback script based on the last action result or data.
-     * This method modifies the 'on_init' config to include feedback rendering.
+     * This method modifies the 'on_ready' config to include feedback rendering.
      *
      * @return void
      */
@@ -744,8 +747,8 @@ class AuthHandler
             return;
         }
 
-        if (!isset($this->config['on_init']) || !is_array($this->config['on_init'])) {
-            $this->config['on_init'] = [];
+        if (!isset($this->config['on_ready']) || !is_array($this->config['on_ready'])) {
+            $this->config['on_ready'] = [];
         }
 
         if (!empty($this->lastActionData) && $this->lastActionData['type']) {
@@ -753,17 +756,17 @@ class AuthHandler
             switch ($this->lastActionData['type']) {
 
                 case 'verify':
-                    $this->config['on_init'][] = "instance._renderForm('login', ".json_encode($this->lastActionData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).");";
+                    $this->config['on_ready'][] = "instance._renderForm('login', ".json_encode($this->lastActionData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).");";
                     break;
 
                 case 'reset':
-                    $this->config['on_init'][] = "instance._renderForm('reset3', ".json_encode($this->lastActionData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).");";
+                    $this->config['on_ready'][] = "instance._renderForm('reset3', ".json_encode($this->lastActionData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).");";
                     break;
 
             }
         }
 
-        elseif (!empty($this->lastActionResult)) $this->config['on_init'][] = "instance.showFeedback(".json_encode($this->lastActionResult, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).");";
+        elseif (!empty($this->lastActionResult)) $this->config['on_ready'][] = "instance.showFeedback(".json_encode($this->lastActionResult, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES).");";
 
     }
 

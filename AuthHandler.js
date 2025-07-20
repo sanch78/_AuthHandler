@@ -5,20 +5,27 @@ class AuthHandler {
     token = null
     }) {
 
-        if (!modulePath) {
-            throw new Error('SimpleMessage: "modulePath" is required.');
-        }
-
         this.userToken = token;
 
         const defaultConfig = {
-            autoIninit: true,
+            modulePath: null,
+            debug: false,
+            langCode: 'en',
+            langData: null,
+            autoIninit: false,
             providers: [],
             allowRegistration: true,
+            providersOnRegistration: false,
+            injectResetButton: false,
             mode: 'modal',
             buttonsTarget: null,
-            providersOnRegistration: false,
-            langCode: 'en'
+            onReady: null,
+            onLogin: null,
+            onLogout: null,
+            siteUrl: window.location.origin + window.location.pathname,
+            siteScript: window.location.pathname,
+            recaptchaType: null,
+            recaptchaSitekey: null
         };
 
         this.config = Object.assign({}, defaultConfig, config);
@@ -28,23 +35,16 @@ class AuthHandler {
         }
         this.modulePath = this.config.modulePath.endsWith('/') ? this.config.modulePath : this.config.modulePath + '/';
 
-        if (!this.config.recaptchaSitekey || !this.config.recaptchaType) this.config.recaptchaType = null;
+        if (!this.config.recaptchaSitekey) this.config.recaptchaType = null;
 
-        this.debug = this.config.debug || false;
-        this.siteUrl = this.config.siteUrl || window.location.origin + window.location.pathname;
-        this.siteScript = this.config.siteScript || window.location.pathname;
+        this.ready = false;
+        this.debug = this.config.debug;
+        this.siteUrl = this.config.siteUrl;
+        this.siteScript = this.config.siteScript;
         this.langCode = this.config.langCode;
-
         this.langData = {};
-        this._loadLang().then(() => {
 
-            if (this.config.langData && typeof langData === 'object') {
-                this.setLangData(this.config.langData);
-            }
-
-            if (this.config.autoIninit) this.init();
-
-        });
+        if (this.config.autoIninit) this.init(this.config.onReady, this.config.langData);
     
     }
 
@@ -52,30 +52,24 @@ class AuthHandler {
     /* ----- PUBLIC METHODS ----- */
 
 
-	/**
-     * Initializes the AuthHandler instance with a user token and configuration overrides.
-     *
-     * @param {string|null} token - The current user token (or null if not logged in)
-     * @param {object} options - Optional config overrides (e.g. providers, callbacks)
-     * @param {string} modulePath - Optional override for module path (used if constructor didn't set it)
-     * @returns {void}
-     */
-    init () {
+    async init (callback = null, langData = null) {
 
-        let callback = this.config.onInit;
-
-        if (typeof callback === 'string') {
-            try {
-                eval(window[`${callback}`.trim()](this));
-            } catch (e) {
-                console.warn('Invalid onInit callback string:', this.config.onInit);
-                callback = null;
+        this._loadLang(langData).then(() => {
+            
+            if (typeof callback === 'string') {
+                try {
+                    eval(window[`${callback}`.trim()](this));
+                } catch (e) {
+                    console.warn('Invalid onReady callback string:', this.config.onReady);
+                    callback = null;
+                }
             }
-        }
 
-        if (typeof callback === 'function') {
-            callback(this);
-        }
+            this.ready = true;
+            
+            if (typeof callback === 'function') callback(this);
+
+        });
 
     }
 
@@ -410,7 +404,7 @@ class AuthHandler {
 	 * Loads the language file.
 	 * @returns {Promise<void>}
 	 */
-	async _loadLang () {
+	async _loadLang (langData = null) {
 
         const langUrl = this.modulePath + 'lang.json' + (this.debug ? '?' + Date.now() : '');
 
@@ -422,6 +416,8 @@ class AuthHandler {
 		} catch (e) {
 			console.warn('Could not load lang.json:', e);
 		}
+
+        if (langData && typeof langData === 'object') this.setLangData(langData);
 
     }
 
@@ -1068,6 +1064,11 @@ class AuthHandler {
             payload,
             (response) => {
                 if (response.token) {
+                    const modalEl = form.closest('.authhandler-modal');
+                    if (modalEl) {
+                        const modal = bootstrap.Modal.getInstance(modalEl);
+                        if (modal) modal.hide();
+                    }
                     this._loginSuccess(response.token);
                 }
             },
@@ -1109,8 +1110,10 @@ class AuthHandler {
             payload,
             (response) => {
                 const modalEl = form.closest('.authhandler-modal');
-                const modal = bootstrap.Modal.getInstance(modalEl);
-                if (modal) modal.hide();
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                }
                 const emailVal = email?.value.trim();
                 if (emailVal) {
                     this._renderForm('verify', { email: emailVal });
@@ -1388,7 +1391,7 @@ class AuthHandler {
         if (typeof callback === 'function') {
             callback();
         } else if (this.config.buttonsTarget) {
-            this.injectButtons(this.config.buttonsTarget);
+            this.injectButtons();
         }
 
     }
@@ -1417,7 +1420,7 @@ class AuthHandler {
         if (typeof callback === 'function') {
             callback();
         } else if (this.config.buttonsTarget) {
-            this.injectButtons(this.config.buttonsTarget);
+            this.injectButtons();
         }
 
     }
