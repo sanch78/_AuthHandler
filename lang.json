@@ -43,13 +43,17 @@
     "en": "You can log in with one of the following providers:",
     "hu": "Egy gombnyomással is bejelentkezhet a következő szolgáltatók valamelyikével:"
   },
+  "login_email_notice": {
+    "en": "If you haven't registered yet, click the link or use one of the providers below.",
+    "hu": "Ha nem regisztráltál még, kattints a linkre, vagy használd valamelyik szolgáltatót az lenti gombok segítségével."
+  },
   "verify_code_notice": {
     "en": "Please enter the verification code sent to your email address.",
     "hu": "Kérjük, adja meg a visszaigazoló kódot, amelyet az email címére küldtünk."
   },
   "logout": {
     "en": "Logout",
-    "hu": "Kilépés"
+    "hu": "Kijelentkezés"
   },
   "login_title": {
     "en": "Sign in",
@@ -102,6 +106,10 @@
   "registration_suggestion": {
     "en": "If you want to register with email/password, click here.",
     "hu": "Ha szeretnél email/jelszóval is regisztrálni, kattints ide."
+  },
+  "signup_suggestion": {
+    "en": "Click here to register.",
+    "hu": "Kattints ide a regisztrációhoz."
   },
   "missing_fields": {
     "en": "Please fill in all fields.",

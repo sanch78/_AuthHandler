@@ -35,7 +35,7 @@
 }
 
 .authhandler-modal.submitting .modal-content {
-	opacity: 0.5;
+	filter: grayscale(0.8) brightness(0.95);
 	pointer-events: none;
 }
 
@@ -239,22 +239,34 @@
 
 .authhandler-suggestion {
 	margin-top: 8px;
-	padding: 10px;
+	padding: 0;
+}
+
+.auth-suggestion-btn {
+	background-color: transparent;
 	border: 1px dashed #dc3545;
+	color: #842029;
+	background-color: #fff;
+	font-weight: 600;
+	padding: 8px 16px;
 	border-radius: 4px;
-	background-color: #fff2f3;
-	font-weight: 500;
-	text-align: center;
-}
-
-.authhandler-suggestion a {
-	color: #dc3545;
-	text-decoration: none;
 	cursor: pointer;
+	width: 100%;
 }
 
-.authhandler-suggestion a:hover {
-	text-decoration: underline;
+.auth-suggestion-btn:hover {
+	background-color: #842029;
+	color: #fff;
+}
+
+.auth-suggestion-btn.regular {
+	color: #0f5132;
+	border-color: #0f5132;
+}
+
+.auth-suggestion-btn.regular:hover {
+	background-color: #0f5132;
+	color: #fff;
 }
 
 #recaptcha-container {

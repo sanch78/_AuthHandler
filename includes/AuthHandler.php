@@ -66,7 +66,6 @@ class AuthHandler
         if (empty($this->config['on_logout'])) $this->config['on_logout'][] = $this->config['on_logout'] ?? "window.location.href = '{$this->siteUrl}';";
         
         $this->LoadLang($this->lang);
-        $this->SetLangData($config['lang_data'] ?? []);
 
         $this->InitializeSqlConnection();
 
@@ -86,7 +85,7 @@ class AuthHandler
 	 * @param string $langCode
 	 * @return void
 	 */
-	protected function LoadLang (string $langCode = 'en'): void
+	public function LoadLang (string $langCode = 'en'): void
 	{
 
 		if ($this->langLoaded) return;
@@ -115,6 +114,8 @@ class AuthHandler
 		}
 
 		$this->langLoaded = true;
+
+        $this->SetLangData($this->config['lang_data'] ?? []);
 
     }
 
@@ -238,9 +239,7 @@ class AuthHandler
         $email    = trim($data['email'] ?? '');
         $password = $data['password'] ?? '';
 
-        if (!$email) $errors['email'] = 'missing_fields';
-
-        if (!$password) $errors['password'] = 'missing_fields';
+        if (!$email || !$password) $errors['password'] = 'missing_fields';
 
         if (!empty($errors)) {
             return [
@@ -251,13 +250,13 @@ class AuthHandler
 
         $user = $this->FindUserByFields(['user_email' => $email]);
 
-        if (!$user) $errors['email'] = 'cant_login';
+        if (!$user) $errors['password'] = 'cant_login';
 
         elseif (empty($user['user_password'])) $errors['password'] = 'password_not_set';
         
         elseif (!password_verify($password, $user['user_password'])) $errors['password'] = 'cant_login';
         
-        elseif (!empty($user['user_regkey'])) $errors['email'] = 'not_verified';
+        elseif (!empty($user['user_regkey'])) $errors['password'] = 'not_verified';
 
         if (!empty($errors)) {
             return [

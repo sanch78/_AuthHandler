@@ -212,9 +212,9 @@ class AuthHandler {
      *
      * @returns {void}
      */
-    login () {
+    login (includeLoginNotice = false) {
 
-        this._renderForm('login');
+        this._renderForm('login', null, includeLoginNotice);
         
     }
 
@@ -429,7 +429,7 @@ class AuthHandler {
      * @param {string} type - The form type ('login', 'registration', etc.)
      * @param {object|null} data - Optional additional data
      */
-    _renderForm (type, data = null) {
+    _renderForm (type, data = null, includeLoginNotice = false) {
 
         if (!['login', 'registration', 'verify', 'reset1', 'reset2', 'reset3'].includes(type)) {
             console.warn('Unknown form type:', type);
@@ -443,7 +443,7 @@ class AuthHandler {
         switch (type) {
 
             case 'login':
-                formEl = this._renderLoginForm(data);
+                formEl = this._renderLoginForm(data, includeLoginNotice);
                 break;
 
             case 'registration':
@@ -496,7 +496,7 @@ class AuthHandler {
      * @param {object|null} data - Optional data to pre-fill the form
      * @returns {HTMLElement|null} The form element or null if not applicable
      */
-    _renderLoginForm (data = null) {
+    _renderLoginForm (data = null, includeLoginNotice = false) {
 
         const form = document.createElement('form');
         form.className = 'authhandler-login-form';
@@ -506,21 +506,27 @@ class AuthHandler {
         emailNotice.setAttribute('data-feedback-for', 'email');
         emailNotice.style.display = 'none';
 
-        if (data?.email) {
+        if (data?.email ||includeLoginNotice) {
             emailNotice.setAttribute('data-persistent', '1');
             emailNotice.style.display = 'block';
             emailNotice.className += ' authhandler-success-notice';
-            if (data.type === 'verify') emailNotice.innerHTML = `<p>${this.getText('verify_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
-            if (data.type === 'reset') emailNotice.innerHTML = `<p>${this.getText('reset_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
+            if (data?.type === 'verify') emailNotice.innerHTML = `<p>${this.getText('verify_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
+            if (data?.type === 'reset') emailNotice.innerHTML = `<p>${this.getText('reset_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
+            if (includeLoginNotice) {
+                emailNotice.innerHTML = `<p>${this.getText('login_email_notice', "If you haven't registered yet, click the link or use one of the providers below.")}</p>`;
+                const resetElem = this._addSuggestion('signup', true);
+                if (resetElem) emailNotice.appendChild(resetElem);
+            }
         } else {
-            emailNotice.innerHTML = `<p></p>`;
+            emailNotice.setAttribute('data-persistent', '1');
+            emailNotice.innerHTML = `<p></p>`;            
         }
 
         const passwordNotice = document.createElement('div');
         passwordNotice.className = 'authhandler-notice';
         passwordNotice.setAttribute('data-feedback-for', 'password');
         passwordNotice.style.display = 'none';
-        passwordNotice.innerHTML = `<p></p>`;
+        passwordNotice.innerHTML = `<p></p>`; 
 
         const email = this._createInput('login_email', 'email', this.getText('login_email', 'Email'));
         const password = this._createInput('login_password', 'password', this.getText('login_password', 'Password'));
@@ -1175,7 +1181,6 @@ class AuthHandler {
      */
     _submitFormHelper (form, payload, onSuccess, onError = null, formType = null) {
 
-
         const btn = form.querySelector('button[type="submit"]');
         const modalEl = form.closest('.authhandler-modal');
 
@@ -1325,18 +1330,19 @@ class AuthHandler {
      * @param {'reset'|'register'} type - The type of suggestion to show
      * @returns {HTMLElement|null} The suggestion container element, or null if already used
      */
-    _addSuggestion (type) {
+    _addSuggestion (type, force = false) {
 
-        if (this.suggestionUsed) return null;
+        if (this.suggestionUsed && !force) return null;
         this.suggestionUsed = true;
 
         const container = document.createElement('div');
         container.className = 'authhandler-suggestion';
 
-        const link = document.createElement('a');
-        link.href = 'javascript:void(0);';
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'btn auth-suggestion-btn';
 
-        let textKey, callback, className;
+        let textKey, callback;
 
         if (type === 'reset') {
             textKey = 'password_reset_suggestion';
@@ -1344,6 +1350,11 @@ class AuthHandler {
         } else if (type === 'register') {
             textKey = 'registration_suggestion';
             callback = this.registration?.bind(this);
+        } else if (type === 'signup') {
+            textKey = 'signup_suggestion';
+            callback = this.registration?.bind(this);
+            container.className = 'authhandler-suggestion regular';
+            link.className = 'btn auth-suggestion-btn regular';
         } else {
             return null;
         }
