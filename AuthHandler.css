@@ -1,3 +1,7 @@
+.authhandler-modal .modal-content .modal-body form {
+	margin-bottom: 1rem;
+}
+
 .authhandler-modal .modal-content {
 	background-color: #fff;
 	border-radius: 0.5rem;
@@ -18,7 +22,6 @@
 	background-color: transparent;
 	color: inherit;
 }
-
 
 #authhandler-feedback-modal .modal-body {
 	font-size: 1rem;

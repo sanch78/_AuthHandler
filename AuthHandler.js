@@ -58,9 +58,14 @@ class AuthHandler {
             
             if (typeof callback === 'string') {
                 try {
-                    eval(window[`${callback}`.trim()](this));
+                    const callbackFn = window[callback.trim()];
+                    if (typeof callbackFn === 'function') {
+                        callbackFn(this);
+                    } else {
+                        console.warn('Callback is not a function:', callback);
+                    }
                 } catch (e) {
-                    console.warn('Invalid onReady callback string:', this.config.onReady);
+                    console.warn('Invalid onReady callback string:', callback, e);
                     callback = null;
                 }
             }
@@ -182,7 +187,7 @@ class AuthHandler {
     }
 
     /**
-     * Injects the appropriate authentication buttons into the target container.
+     * Injects the appropriate authentication buttons into the target container(s).
      * Shows "Logout" if user is logged in, otherwise shows "Login" and optionally "Register".
      * 
      * @param {string|Element|null} target - The target container selector or element where buttons will be injected.
@@ -191,18 +196,25 @@ class AuthHandler {
 
         if (!target) return;
 
-        const container = this._resolveTarget(target);
-        if (!container) return;
+        const containers = this._resolveTarget(target);
+        if (!containers) return;
 
-        container.innerHTML = '';
+        // Handle both single element and array of elements
+        const containerArray = Array.isArray(containers) ? containers : [containers];
 
-        if (this.userToken) {
-            container.appendChild(this.renderLogoutButton());
-        } else {
-            container.appendChild(this.renderLoginButton());
-            if (this.config.injectResetButton) container.appendChild(this.renderResetButton());
-            if (this.config.allowRegistration) container.appendChild(this.renderRegisterButton());
-        }
+        containerArray.forEach(container => {
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (this.userToken) {
+                container.appendChild(this.renderLogoutButton());
+            } else {
+                container.appendChild(this.renderLoginButton());
+                if (this.config.injectResetButton) container.appendChild(this.renderResetButton());
+                if (this.config.allowRegistration) container.appendChild(this.renderRegisterButton());
+            }
+        });
 
     }
 
@@ -316,7 +328,7 @@ class AuthHandler {
                     noticeWrap.classList.add('authhandler-error-notice');
 
                     if (formType === 'login' || (formType === 'registration' && errorKey === 'email_exists')) {
-                        const existing = noticeWrap.querySelector('.authhandler-reset-suggestion');
+                        const existing = noticeWrap.querySelector('.authhandler-suggestion');
                         if (existing) existing.remove();
 
                         const resetElem = this._addSuggestion(errorKey === 'password_not_set' ? 'register' : 'reset');
@@ -436,6 +448,8 @@ class AuthHandler {
             return;
         }
 
+        this.suggestionUsed = false;
+
         this.passwordResetLinkUsed = false;
 
         let formEl = null;
@@ -469,10 +483,13 @@ class AuthHandler {
         }
 
         if (this.config.mode === 'inline') {
-            const container = this._resolveTarget(this.config.target);
-            if (container) {
-                container.innerHTML = '';
-                container.appendChild(formEl);
+            const containers = this._resolveTarget(this.config.target);
+            if (containers) {
+                const container = Array.isArray(containers) ? containers[0] : containers;
+                if (container) {
+                    container.innerHTML = '';
+                    container.appendChild(formEl);
+                }
             }
         } else {
 
@@ -506,7 +523,7 @@ class AuthHandler {
         emailNotice.setAttribute('data-feedback-for', 'email');
         emailNotice.style.display = 'none';
 
-        if (data?.email ||includeLoginNotice) {
+        if (data?.email || includeLoginNotice) {
             emailNotice.setAttribute('data-persistent', '1');
             emailNotice.style.display = 'block';
             emailNotice.className += ' authhandler-success-notice';
@@ -909,12 +926,12 @@ class AuthHandler {
             : '';
 
         return `
-        <div class="modal fade authhandler-modal ${extraClass}" id="${id}" tabindex="-1" aria-hidden="true">
+        <div class="modal fade authhandler-modal ${extraClass}" id="${id}" tabindex="-1">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header ${headerClass}">
                         <h5 class="modal-title">${title}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="${this.getText?.('close', 'Close')}"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">${bodyContent}</div>
                 </div>
@@ -1037,11 +1054,14 @@ class AuthHandler {
      * Resolves a DOM target from a selector string or directly passed element.
      *
      * @param {string|Element|null} target - CSS selector or HTMLElement
-     * @returns {HTMLElement|null} The resolved element or null if not found
+     * @returns {HTMLElement|HTMLElement[]|null} The resolved element(s) or null if not found
      */
     _resolveTarget (target) {
 
-        if (typeof target === 'string') return document.querySelector(target);
+        if (typeof target === 'string') {
+            const elements = document.querySelectorAll(target);
+            return elements.length === 1 ? elements[0] : Array.from(elements);
+        }
         if (target instanceof Element) return target;
 
         return null;
@@ -1332,8 +1352,8 @@ class AuthHandler {
      */
     _addSuggestion (type, force = false) {
 
-        if (this.suggestionUsed && !force) return null;
-        this.suggestionUsed = true;
+        if (this.suggestionUsed === type && !force) return null;
+        this.suggestionUsed = type;
 
         const container = document.createElement('div');
         container.className = 'authhandler-suggestion';

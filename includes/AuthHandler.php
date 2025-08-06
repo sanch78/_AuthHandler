@@ -19,6 +19,8 @@ class AuthHandler
     protected $siteScript;
     protected $lastActionResult = null;
     protected $lastActionData = null;
+    
+    public $userData = [];
 
     public function __construct ($config) {
 
@@ -60,7 +62,7 @@ class AuthHandler
 
         if (!empty($this->config['buttons_target'])) {
             $target = json_encode($this->config['buttons_target'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $this->config['on_ready'][] = $this->config['on_ready'] ?? "instance.injectButtons({$target});";
+            $this->config['on_ready'][] = "instance.injectButtons({$target});";
         }
         if (empty($this->config['on_login'])) $this->config['on_login'][] = $this->config['on_login'] ?? "window.location.href = '{$this->siteUrl}';";
         if (empty($this->config['on_logout'])) $this->config['on_logout'][] = $this->config['on_logout'] ?? "window.location.href = '{$this->siteUrl}';";
@@ -270,7 +272,14 @@ class AuthHandler
         if (!$token) {
             $token = $this->GenerateUniqueToken();
             $this->UpdateUserFieldsById($user['key'], [
-                'user_token' => $token
+                'user_token' => $token,
+                'last_login' => date('Y-m-d H:i:s'),
+                'last_ip' => $this->GetClientIp()
+            ]);
+        } else {
+            $this->UpdateUserFieldsById($user['key'], [
+                'last_login' => date('Y-m-d H:i:s'),
+                'last_ip' => $this->GetClientIp()
             ]);
         }
 
@@ -639,10 +648,9 @@ class AuthHandler
 
 		$return = '<link rel="stylesheet" href="' . $this->modulePath . 'AuthHandler.css' . (isset($this->config['debug']) ? '?' . time() : '') . '">';
 		$return .= '<script src="' . $this->modulePath . 'AuthHandler.js' . (isset($this->config['debug']) ? '?' . time() : '') . '"></script>';
-        $return .= '<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>';
+        $return .= '<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>'."\n";
 
-
-		echo $return;
+		return $return;
 
 	}
 
@@ -675,11 +683,11 @@ class AuthHandler
             if (is_array($raw)) {
                 foreach ($raw as $line) {
                     if (is_string($line) && trim($line)) {
-                        $callbacks[$targetKey][] = trim($line);
+                        $callbacks[$targetKey][] = trim($line).(!preg_match('/;\s*$/', $line) ? ';' : '');
                     }
                 }
             } elseif (is_string($raw) && trim($raw)) {
-                $callbacks[$targetKey][] = trim($raw);
+                $callbacks[$targetKey][] = trim($raw).(!preg_match('/;\s*$/', $raw) ? ';' : '');
             }
         }
 
@@ -717,19 +725,19 @@ class AuthHandler
 
             $fnName = "_{$this->jsObject}" . ucfirst(str_replace('_', '', $hook));
 
-            echo "window.{$fnName} = function (instance) { ";
+            $return .= "window.{$fnName} = function (instance) { ";
             foreach ($lines as $line) {
-                echo "{$line} ";
+                $return .= "{$line} ";
             }
-            echo "};\n";
+            $return .= "};\n";
         }
 
-        $return = "window.{$this->jsObject} = new AuthHandler({";
+        $return .= "window.{$this->jsObject} = new AuthHandler({";
         $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES) . ", ";
         $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "'";
         $return .= "});\n";
 
-        echo $return;
+        return $return;
 
     }
 
@@ -821,7 +829,7 @@ class AuthHandler
 
         if (empty($token)) return false;
 
-        $user = $this->FindUserByFields(['user_token' => $token]);
+        $user = $this->FindUserByFields(['user_token' => $token], true);
 
         if (!$user) {
             $this->LogoutUser();
@@ -830,6 +838,8 @@ class AuthHandler
 
         $_SESSION['auth_token'] = $token;
         $_SESSION['auth_user'] = $user;
+
+        $this->userData = $user;
 
         return true;
 
@@ -907,37 +917,43 @@ class AuthHandler
             $email = strtolower($providerName) . '_' . $providerId . '@oauth.local';
         }
 
-        list($table, $fs) = $this->GetSqlMeta();
+        // Try to find user by OAuth provider first
+        $user = $this->FindUserByOAuthProvider($providerName, $providerId);
 
-        $user = $this->FindUserByFields([
-            'provider' => $providerName,
-            'provider_id' => $providerId
-        ]);
+        // User found by OAuth provider - update last login and proceed
+        if ($user) {           
+            $this->UpdateUserFieldsById($user['key'], [
+                'last_login' => date('Y-m-d H:i:s'),
+                'last_ip' => $this->GetClientIp()
+            ]);
+            $token = $user['user_token'];
 
-        if (!$user) {
+        // User not found by OAuth provider - check if email exists
+        } else {
             $existing = $this->FindUserByFields(['user_email' => $email]);
 
+            // Email exists - link this OAuth provider to existing user
             if ($existing) {
+                
+                $this->LinkOAuthProvider($existing['key'], $providerName, $providerId);
                 $this->UpdateUserFieldsById($existing['key'], [
-                    'provider'     => $providerName,
-                    'provider_id'  => $providerId,
-                    'last_login'   => time()
+                    'last_login' => date('Y-m-d H:i:s'),
+                    'last_ip' => $this->GetClientIp()
                 ]);
 
                 $token = $existing['user_token'];
                 if (!$token) {
                     $token = $this->GenerateUniqueToken();
-                    $this->UpdateUserFieldsById($existing['key'], [
-                        'user_token' => $token
-                    ]);
+                    $this->UpdateUserFieldsById($existing['key'], ['user_token' => $token]);
                 }
-            } else {
+
+            // Create new user and link OAuth provider
+            } else {               
                 $result = $this->InsertUser([
-                    'user_email'   => $email,
-                    'provider'     => $providerName,
-                    'provider_id'  => $providerId,
-                    'created_at'   => time(),
-                    'last_login'   => time()
+                    'user_email' => $email,
+                    'created_at' => date('Y-m-d H:i:s'),
+                    'last_login' => date('Y-m-d H:i:s'),
+                    'last_ip' => $this->GetClientIp()
                 ]);
 
                 if (!$result || empty($result['user_token'])) {
@@ -945,13 +961,12 @@ class AuthHandler
                     exit('User insert failed.');
                 }
 
+                $userId = $result['key'];
                 $token = $result['user_token'];
+
+                // Link OAuth provider to new user
+                $this->LinkOAuthProvider($userId, $providerName, $providerId);
             }
-        } else {
-            $token = $user['user_token'];
-            $this->UpdateUserFieldsById($user['key'], [
-                'last_login' => time()
-            ]);
         }
 
         $this->LoginUser($token);
@@ -970,12 +985,48 @@ class AuthHandler
     protected function GetSqlMeta (): array
     {
 
-        $table    = $this->sqlConfig['table'] ?? null;
-        $fieldset = $this->sqlConfig['fieldset'] ?? null;
+        $table = $this->sqlConfig['table'] ?? 'users';
+        $fieldset = $this->sqlConfig['fieldset'] ?? [
+            'key' => 'id',
+            'user_email' => 'email',
+            'user_password' => 'password', 
+            'user_token' => 'token',
+            'user_regkey' => 'regkey',
+            'user_resetkey' => 'resetkey',
+            'created_at' => 'created_time',
+            'last_login' => 'last_login_time',
+            'last_ip' => 'last_ip_address',
+            'last_update' => 'last_update_time'
+        ];
 
         if (!$table || !is_array($fieldset)) {
             throw new Exception('SQL table or fieldset missing');
         }
+
+        return [ $table, $fieldset ];
+
+    }
+
+
+    /**
+     * Retrieves the OAuth providers SQL table and fieldset metadata.
+     *
+     * @return array An array containing the providers table name and fieldset
+     */
+    protected function GetProvidersSqlMeta (): array
+    {
+
+        list($mainTable, $fs) = $this->GetSqlMeta();
+
+        $table = $this->sqlConfig['providers_table'] ?? $mainTable . '_providers';
+        $fieldset = $this->sqlConfig['providers_fieldset'] ?? [
+            'key' => $fs['key'],
+            'provider_name' => 'provider_name',
+            'provider_id' => 'provider_id',
+            'created_at' => $fs['created_at'],
+            'last_login' => $fs['last_login'],
+            'last_update' => $fs['last_update']
+        ];
 
         return [ $table, $fieldset ];
 
@@ -996,6 +1047,7 @@ class AuthHandler
         $driver = $this->sqlConfig['driver'] ?? 'sqlite';
 
         if ($driver === 'sqlite') {
+
             $dbname = $this->sqlConfig['dbname'] ?? null;
             if (!$dbname) throw new Exception('SQLite database path (dbname) is required');
 
@@ -1004,28 +1056,14 @@ class AuthHandler
             $this->pdo = new PDO('sqlite:' . $dbname);
             $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-            if ($needsInit) {
-                $this->pdo->exec("
-                    CREATE TABLE IF NOT EXISTS {$this->sqlConfig['table']} (
-                        {$this->sqlConfig['fieldset']['key']} INTEGER PRIMARY KEY AUTOINCREMENT,
-                        {$this->sqlConfig['fieldset']['user_email']} TEXT UNIQUE,
-                        {$this->sqlConfig['fieldset']['user_password']} TEXT,
-                        {$this->sqlConfig['fieldset']['user_regkey']} TEXT,
-                        {$this->sqlConfig['fieldset']['user_resetkey']} TEXT,
-                        {$this->sqlConfig['fieldset']['user_token']} TEXT,
-                        {$this->sqlConfig['fieldset']['provider']} TEXT,
-                        {$this->sqlConfig['fieldset']['provider_id']} TEXT,
-                        {$this->sqlConfig['fieldset']['created_at']} TEXT,
-                        {$this->sqlConfig['fieldset']['last_login']} TEXT,
-                        {$this->sqlConfig['fieldset']['last_update']} TEXT
-                    );
-                ");
-            }
+            if ($needsInit) $this->CreateSqliteTables();
 
             return;
+
         }
 
         if ($driver === 'mysql') {
+
             $host = $this->sqlConfig['host'] ?? 'localhost';
             $port = $this->sqlConfig['port'] ?? 3306;
             $dbname = $this->sqlConfig['dbname'] ?? '';
@@ -1041,9 +1079,57 @@ class AuthHandler
             $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
             return;
+
         }
 
         throw new Exception("Unsupported SQL driver: $driver");
+
+    }
+
+
+    /**
+     * Creates SQLite database tables during initialization.
+     * Creates both the main users table and OAuth providers junction table.
+     *
+     * @return void
+     */
+    protected function CreateSqliteTables(): void
+    {
+
+        // Get main table configuration
+        list($table, $fs) = $this->GetSqlMeta();
+
+        // Main users table
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$table} (
+                {$fs['key']} INTEGER PRIMARY KEY AUTOINCREMENT,
+                {$fs['user_email']} TEXT UNIQUE,
+                {$fs['user_password']} TEXT,
+                {$fs['user_regkey']} TEXT,
+                {$fs['user_resetkey']} TEXT,
+                {$fs['user_token']} TEXT,
+                {$fs['created_at']} TEXT,
+                {$fs['last_login']} TEXT,
+                {$fs['last_ip']} TEXT,
+                {$fs['last_update']} TEXT
+            );
+        ");
+
+        // Get OAuth providers table configuration
+        list($providersTable, $pfs) = $this->GetProvidersSqlMeta();
+
+        // OAuth providers junction table
+        $this->pdo->exec("
+            CREATE TABLE IF NOT EXISTS {$providersTable} (
+                {$pfs['key']} INTEGER NOT NULL,
+                {$pfs['provider_name']} TEXT NOT NULL,
+                {$pfs['provider_id']} TEXT NOT NULL,
+                {$pfs['created_at']} TEXT DEFAULT CURRENT_TIMESTAMP,
+                {$pfs['last_login']} TEXT,
+                FOREIGN KEY ({$pfs['key']}) REFERENCES {$table}({$fs['key']}),
+                UNIQUE({$pfs['provider_name']}, {$pfs['provider_id']})
+            );
+        ");
 
     }
 
@@ -1072,15 +1158,23 @@ class AuthHandler
      * Finds a user by arbitrary logical field conditions (AND combined).
      *
      * @param array $conditions Associative array of logical field => value pairs
+     * @param bool $includeAdditional Whether to include additional fields from sql_config
      * @return array|null Full user row as associative array, or null if not found
      */
-    protected function FindUserByFields (array $conditions): ?array
+    protected function FindUserByFields (array $conditions, bool $includeAdditional = false): ?array
     {
 
         list($table, $fs) = $this->GetSqlMeta();
 
         if (empty($fs['key']) || empty($conditions)) {
             return null;
+        }
+
+        // Include additional fields if requested and configured
+        if ($includeAdditional && !empty($this->sqlConfig['additional_fields']) && is_array($this->sqlConfig['additional_fields'])) {
+            foreach ($this->sqlConfig['additional_fields'] as $fieldName) {
+                $fs[$fieldName] = $fieldName;
+            }
         }
 
         $where = [];
@@ -1116,7 +1210,6 @@ class AuthHandler
         return $result;
 
     }
-
 
 
     /**
@@ -1277,6 +1370,7 @@ class AuthHandler
      */
     protected function UpdateUserFieldsById (int $userId, array $fields): bool
     {
+
         list($table, $fs) = $this->GetSqlMeta();
 
         if (!isset($fs['key'])) {
@@ -1320,6 +1414,7 @@ class AuthHandler
      */
     protected function SendResetEmail (string $toEmail, string $regkey): bool
     {
+
         $link = $this->siteUrl . $this->siteScript . '?ah_action=remote_reset&email=' . urlencode($toEmail) . '&code=' . urlencode($regkey);
 
         return $this->SendEmailFromTemplate(
@@ -1331,6 +1426,7 @@ class AuthHandler
                 '{verify_url}' => $link
             ]
         );
+
     }
 
 
@@ -1368,7 +1464,7 @@ class AuthHandler
      * @param array $placeholders Array of placeholder => replacement (e.g. '{regkey}' => '1234')
      * @return bool True if mail sent successfully, false otherwise
      */
-    protected function SendEmailFromTemplate (string $toEmail, string $templateFile, string $subject, array $placeholders): bool
+    protected function SendEmailFromTemplate (string $toEmail, string $templateFile, string $subject, array $placeholders): bool 
     {
 
         $cfg = $this->config['email_config'] ?? null;
@@ -1408,7 +1504,8 @@ class AuthHandler
 
     }
 
-    function VerifyRecaptchaToken ($token) {
+    function VerifyRecaptchaToken ($token) 
+    {
 
         if (!isset($this->config['recaptcha_secret'])) return true;
 
@@ -1435,5 +1532,124 @@ class AuthHandler
 
     }
 
+
+    /**
+     * Finds a user by OAuth provider and provider ID.
+     *
+     * @param string $providerName The provider name (e.g., 'Google', 'Facebook')
+     * @param string $providerId The provider's user ID
+     * @return array|null User data or null if not found
+     */
+    protected function FindUserByOAuthProvider(string $providerName, string $providerId): ?array
+    {
+
+        list($usersTable, $fs) = $this->GetSqlMeta();
+        list($providersTable, $pfs) = $this->GetProvidersSqlMeta();
+
+        $sql = "
+            SELECT u.* 
+            FROM {$usersTable} AS u 
+            INNER JOIN {$providersTable} AS p ON u.{$fs['key']} = p.{$pfs['key']} 
+            WHERE p.{$pfs['provider_name']} = :provider_name AND p.{$pfs['provider_id']} = :provider_id 
+            LIMIT 1
+        ";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':provider_name' => $providerName,
+            ':provider_id' => $providerId
+        ]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+
+        $result = [];
+        foreach ($fs as $logical => $column) {
+            if (isset($row[$column])) {
+                $result[$logical] = $row[$column];
+            }
+        }
+
+        return $result;
+
+    }
+
+
+    /**
+     * Links an OAuth provider to a user.
+     *
+     * @param int $userId The user's ID
+     * @param string $providerName The provider name
+     * @param string $providerId The provider's user ID
+     * @return bool True on success
+     */
+    protected function LinkOAuthProvider(int $userId, string $providerName, string $providerId): bool
+    {
+
+        list($providersTable, $pfs) = $this->GetProvidersSqlMeta();
+
+        // Check if this provider link already exists
+        $sql = "SELECT {$pfs['key']} FROM {$providersTable} WHERE {$pfs['key']} = :user_id AND {$pfs['provider_name']} = :provider_name";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':user_id' => $userId,
+            ':provider_name' => $providerName
+        ]);
+
+        // Update existing link
+        if ($stmt->fetch()) $sql = "UPDATE {$providersTable} SET {$pfs['provider_id']} = :provider_id, {$pfs['last_login']} = CURRENT_TIMESTAMP WHERE {$pfs['key']} = :user_id AND {$pfs['provider_name']} = :provider_name";
+
+        // Insert new link
+        else $sql = "INSERT INTO {$providersTable} ({$pfs['key']}, {$pfs['provider_name']}, {$pfs['provider_id']}) VALUES (:user_id, :provider_name, :provider_id)";
+
+        $stmt = $this->pdo->prepare($sql);
+        return $stmt->execute([
+            ':user_id' => $userId,
+            ':provider_name' => $providerName,
+            ':provider_id' => $providerId
+        ]);
+
+    }
+
+
+    /**
+     * Gets the real client IP address, considering proxy headers.
+     *
+     * @return string The client's IP address
+     */
+    protected function GetClientIp(): string
+    {
+
+        $ipHeaders = [
+            'HTTP_CF_CONNECTING_IP',     // Cloudflare
+            'HTTP_CLIENT_IP',            // Proxy
+            'HTTP_X_FORWARDED_FOR',      // Load balancer/proxy
+            'HTTP_X_FORWARDED',          // Proxy
+            'HTTP_X_CLUSTER_CLIENT_IP',  // Cluster
+            'HTTP_FORWARDED_FOR',        // Proxy
+            'HTTP_FORWARDED',            // Proxy
+            'REMOTE_ADDR'                // Standard
+        ];
+
+        foreach ($ipHeaders as $header) {
+            if (!empty($_SERVER[$header])) {
+                $ips = explode(',', $_SERVER[$header]);
+                $ip = trim($ips[0]);
+                
+                // Validate IP address
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    return $ip;
+                }
+                
+                // If validation fails, try IPv4/IPv6 without private/reserved check
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    return $ip;
+                }
+            }
+        }
+
+        return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+    }
     
 }
