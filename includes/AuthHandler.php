@@ -21,6 +21,7 @@ class AuthHandler
     protected $lastActionData = null;
     
     public $userData = [];
+    public $userId = null;
 
     public function __construct ($config) {
 
@@ -271,16 +272,16 @@ class AuthHandler
 
         if (!$token) {
             $token = $this->GenerateUniqueToken();
-            $this->UpdateUserFieldsById($user['key'], [
+            $this->UpdateUserFieldsById([
                 'user_token' => $token,
                 'last_login' => date('Y-m-d H:i:s'),
                 'last_ip' => $this->GetClientIp()
-            ]);
+            ], $user['key']);
         } else {
-            $this->UpdateUserFieldsById($user['key'], [
+            $this->UpdateUserFieldsById([
                 'last_login' => date('Y-m-d H:i:s'),
                 'last_ip' => $this->GetClientIp()
-            ]);
+            ], $user['key']);
         }
 
         $this->LoginUser($token);
@@ -375,10 +376,10 @@ class AuthHandler
 
         if ($user) {
 
-            $this->UpdateUserFieldsById($user['key'], [
+            $this->UpdateUserFieldsById([
                 'user_password' => $hash,
                 'user_regkey' => $regkey
-            ]);
+            ], $user['key']);
 
         } else {
 
@@ -484,9 +485,9 @@ class AuthHandler
 
         if ($stored === $code || $stored === $code . '_') {
             if ($stored === $code) {
-                $ok = $this->UpdateUserFieldsById($userId, [
+                $ok = $this->UpdateUserFieldsById([
                     'user_resetkey' => $code . '_'
-                ]);
+                ], $userId);
                 if (!$ok) {
                     return [
                         'success' => false,
@@ -556,12 +557,12 @@ class AuthHandler
         }
 
         $userId = (int)$row['id'];
-        $hash   = password_hash($password, PASSWORD_DEFAULT);
+        $hash = password_hash($password, PASSWORD_DEFAULT);
 
-        $ok = $this->UpdateUserFieldsById($userId, [
+        $ok = $this->UpdateUserFieldsById([
             'user_password' => $hash,
             'user_resetkey' => null
-        ]);
+        ], $userId);
         if (!$ok) {
             return [
                 'success' => false,
@@ -619,9 +620,9 @@ class AuthHandler
         }
 
         if ($doWrite) {
-            $ok = $this->UpdateUserFieldsById((int)$row['key'], [
+            $ok = $this->UpdateUserFieldsById([
                 'user_regkey' => null
-            ]);
+            ], (int)$row['key']);
             if (!$ok) {
                 return [
                     'success' => false,
@@ -839,7 +840,22 @@ class AuthHandler
         $_SESSION['auth_token'] = $token;
         $_SESSION['auth_user'] = $user;
 
-        $this->userData = $user;
+        $this->userData = [];
+        list($table, $fs) = $this->GetSqlMeta();
+        foreach ($fs as $logical => $column) {
+            if (isset($user[$logical])) {
+                $this->userData[$column] = $user[$logical];
+            }
+        }
+        if (!empty($this->sqlConfig['additional_fields']) && is_array($this->sqlConfig['additional_fields'])) {
+            foreach ($this->sqlConfig['additional_fields'] as $fieldName) {
+                $this->userData[$fieldName] = $user[$fieldName] ?? null;
+            }
+        }
+
+        $this->userId = $user['key'];
+
+        $_SESSION['user_id'] = $this->userId;
 
         return true;
 
@@ -922,10 +938,10 @@ class AuthHandler
 
         // User found by OAuth provider - update last login and proceed
         if ($user) {           
-            $this->UpdateUserFieldsById($user['key'], [
+            $this->UpdateUserFieldsById([
                 'last_login' => date('Y-m-d H:i:s'),
                 'last_ip' => $this->GetClientIp()
-            ]);
+            ], $user['key']);
             $token = $user['user_token'];
 
         // User not found by OAuth provider - check if email exists
@@ -936,15 +952,15 @@ class AuthHandler
             if ($existing) {
                 
                 $this->LinkOAuthProvider($existing['key'], $providerName, $providerId);
-                $this->UpdateUserFieldsById($existing['key'], [
+                $this->UpdateUserFieldsById([
                     'last_login' => date('Y-m-d H:i:s'),
                     'last_ip' => $this->GetClientIp()
-                ]);
+                ], $existing['key']);
 
                 $token = $existing['user_token'];
                 if (!$token) {
                     $token = $this->GenerateUniqueToken();
-                    $this->UpdateUserFieldsById($existing['key'], ['user_token' => $token]);
+                    $this->UpdateUserFieldsById(['user_token' => $token], $existing['key']);
                 }
 
             // Create new user and link OAuth provider
@@ -1170,7 +1186,6 @@ class AuthHandler
             return null;
         }
 
-        // Include additional fields if requested and configured
         if ($includeAdditional && !empty($this->sqlConfig['additional_fields']) && is_array($this->sqlConfig['additional_fields'])) {
             foreach ($this->sqlConfig['additional_fields'] as $fieldName) {
                 $fs[$fieldName] = $fieldName;
@@ -1230,9 +1245,9 @@ class AuthHandler
         $userId = (int)$user['key'];
         $resetKey = str_pad((string)random_int(0, 9999), 4, '0', STR_PAD_LEFT);
 
-        $ok = $this->UpdateUserFieldsById($userId, [
+        $ok = $this->UpdateUserFieldsById([
             'user_resetkey' => $resetKey
-        ]);
+        ], $userId);
 
         return $ok ? $resetKey : null;
 
@@ -1364,16 +1379,32 @@ class AuthHandler
     /**
      * Updates user fields by user ID using fieldset mapping.
      *
-     * @param int $userId The user's ID
      * @param array $fields Associative array of logical field keys => new values
+     * @param int|null $userId The user's ID (optional, defaults to $this->userId)
      * @return bool True on success, false on failure
      */
-    protected function UpdateUserFieldsById (int $userId, array $fields): bool
+    protected function UpdateUserFieldsById (array $fields, int $userId = null): bool
     {
-
+        
         list($table, $fs) = $this->GetSqlMeta();
 
+        if (!empty($this->sqlConfig['additional_fields']) && is_array($this->sqlConfig['additional_fields'])) {
+            foreach ($this->sqlConfig['additional_fields'] as $fieldName) {
+                if (!isset($fs[$fieldName])) {
+                    $fs[$fieldName] = $fieldName;
+                }
+            }
+        }
+
         if (!isset($fs['key'])) {
+            return false;
+        }
+
+        if ($userId === null && $this->userId !== null) {
+            $userId = $this->userId;
+        }
+
+        if ($userId === null) {
             return false;
         }
 
@@ -1401,6 +1432,47 @@ class AuthHandler
         $stmt = $this->pdo->prepare($sql);
 
         return $stmt->execute($params);
+
+    }
+
+
+    /**
+     * Updates only the additional_fields of the currently logged-in user.
+     * Only fields listed in sqlConfig['additional_fields'] are allowed.
+     * Also updates $this->userData accordingly.
+     *
+     * @param array $fields Associative array of allowed fields to update
+     * @return bool True on success, false otherwise
+     */
+    public function UpdateUserData (array $fields): bool
+    {
+    
+        if (!$this->userId) {
+            return false;
+        }
+        if (empty($this->sqlConfig['additional_fields']) || !is_array($this->sqlConfig['additional_fields'])) {
+            return false;
+        }
+
+        $allowed = array_flip($this->sqlConfig['additional_fields']);
+        $toUpdate = [];
+        foreach ($fields as $key => $value) {
+            if (isset($allowed[$key])) {
+                $toUpdate[$key] = $value;
+            }
+        }
+        if (empty($toUpdate)) {
+            return false;
+        }
+
+        $ok = $this->UpdateUserFieldsById($toUpdate);
+        if ($ok) {
+            foreach ($toUpdate as $key => $value) {
+                $this->userData[$key] = $value;
+            }
+        }
+
+        return $ok;
 
     }
 
