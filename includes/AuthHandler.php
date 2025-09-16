@@ -311,6 +311,7 @@ class AuthHandler
         return [
             'success' => true
         ];
+
     }
 
 
@@ -726,16 +727,17 @@ class AuthHandler
 
             $fnName = "_{$this->jsObject}" . ucfirst(str_replace('_', '', $hook));
 
-            $return .= "window.{$fnName} = function (instance) { ";
+            $return .= "window.{$fnName} = function (instance) {";
             foreach ($lines as $line) {
-                $return .= "{$line} ";
+                $return .= "{$line}";
             }
             $return .= "};\n";
         }
 
         $return .= "window.{$this->jsObject} = new AuthHandler({";
-        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES) . ", ";
-        $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "'";
+        $return .= "config:" . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . ", ";
+        $return .= "token:'" . ($_SESSION['auth_token'] ?? '') . "',";
+        $return .= "data:" . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . "";
         $return .= "});\n";
 
         return $return;
@@ -792,14 +794,12 @@ class AuthHandler
             return;
         }
 
-        if (!empty($this->config['auto_session'])) {
-
-            if (!empty($this->config['session_name'])) {
-                session_name($this->config['session_name']);
-            }
-
-            session_start();
-        }
+        if (!empty($this->config['auto_session'])) session_start([
+            'name' => $this->config['session_name'] ?? $this->config['site_name'],
+            'cookie_lifetime' => $this->config['cookie_lifetime'] ?? 86400,
+            'cookie_secure' => true,
+            'cookie_httponly' => false
+        ]);
 
     }
 
@@ -837,6 +837,9 @@ class AuthHandler
             return false;
         }
 
+        $user['user_id'] = $user['key'];
+        
+
         $_SESSION['auth_token'] = $token;
         $_SESSION['auth_user'] = $user;
 
@@ -872,6 +875,8 @@ class AuthHandler
 
         unset($_SESSION['auth_token']);
         unset($_SESSION['auth_user']);
+        unset($_SESSION['user_id']);
+        unset($_SESSION['HYBRIDAUTH::STORAGE']);
 
         return true;
 
@@ -895,9 +900,9 @@ class AuthHandler
             exit('Provider not enabled.');
         }
 
-        $config['callback'] = $config['providers'][$providerName]['callback'] ?? null;
+        if (!empty($_GET['redirect_query'])) $_SESSION['redirect_query'] = $_GET['redirect_query'];
 
-        if (!$config['callback']) {
+        if (!$config['providers'][$providerName]['callback']) {
             http_response_code(500);
             exit('Missing callback URL for provider.');
         }
@@ -987,7 +992,15 @@ class AuthHandler
 
         $this->LoginUser($token);
 
-        header('Location: ' . $this->config['site_url']);
+        $redirect = $this->config['site_url'];
+        if (!empty($_SESSION['redirect_query'])) {
+            $query = $_SESSION['redirect_query'];
+            $query = ltrim($query, '?&');
+            $redirect .= (strpos($redirect, '?') === false ? '?' : '&') . $query;
+            unset($_SESSION['redirect_query']);
+        }
+
+        header('Location: ' . $redirect);
         exit;
 
     }

@@ -2,10 +2,12 @@ class AuthHandler {
 
 	constructor ({
 	config = {},
-    token = null
+    token = null,
+    data = null
     }) {
 
         this.userToken = token;
+        this.userData = data;
 
         const defaultConfig = {
             modulePath: null,
@@ -71,8 +73,6 @@ class AuthHandler {
             }
 
             this.ready = true;
-            
-            if (typeof callback === 'function') callback(this);
 
         });
 
@@ -228,6 +228,15 @@ class AuthHandler {
 
         this._renderForm('login', null, includeLoginNotice);
         
+    }
+
+
+    setProviderRedirectGetQuery (query, persistent = false) {
+
+        this.providerRedirectGetQuery = query;
+
+        this.providerRedirectPersistent = persistent;
+
     }
 
 
@@ -417,6 +426,8 @@ class AuthHandler {
 	 * @returns {Promise<void>}
 	 */
 	async _loadLang (langData = null) {
+
+        if (this.ready) return true;
 
         const langUrl = this.modulePath + 'lang.json' + (this.debug ? '?' + Date.now() : '');
 
@@ -896,7 +907,12 @@ class AuthHandler {
 
             pbtn.append(iconSpan, textSpan);
             pbtn.onclick = () => {
-                window.location.href = this.siteUrl + this.siteScript + `?ah_action=provider&provider=${provider}`;
+                let href = this.siteUrl + this.siteScript + `?ah_action=provider&provider=${provider}`;
+                if (typeof this.providerRedirectGetQuery === 'string' && this.providerRedirectGetQuery.length > 0) {
+                    href += `&redirect_query=` + encodeURIComponent(this.providerRedirectGetQuery);
+                    if (!this.providerRedirectPersistent) this.providerRedirectGetQuery = null;
+                }
+                window.location.href = href;
             };
 
             container.appendChild(pbtn);
@@ -1400,13 +1416,19 @@ class AuthHandler {
         return container;
     }
 
+    logoutUser () {
+
+        this.userToken = null;
+
+    }
+
 
     /**
      * Handles successful logout state: clears token and triggers callbacks.
      */
     _logoutSuccess () {
 
-        this.userToken = null;
+        this.logoutUser();
 
         let callback = this.config.onLogout;
 
@@ -1419,9 +1441,8 @@ class AuthHandler {
             }
         }
 
-        if (typeof callback === 'function') {
-            callback();
-        } else if (this.config.buttonsTarget) {
+        if (typeof callback === 'function') callback();
+        else if (this.config.buttonsTarget) {
             this.injectButtons();
         }
 
@@ -1448,9 +1469,8 @@ class AuthHandler {
             }
         }
 
-        if (typeof callback === 'function') {
-            callback();
-        } else if (this.config.buttonsTarget) {
+        if (typeof callback === 'function') callback();
+        else if (this.config.buttonsTarget) {
             this.injectButtons();
         }
 
