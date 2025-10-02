@@ -304,8 +304,7 @@ class AuthHandler
     {
 
         if (session_status() === PHP_SESSION_ACTIVE) {
-            unset($_SESSION['user_token']);
-            session_destroy();
+            $this->LogoutUser();
         }
 
         return [
@@ -643,14 +642,25 @@ class AuthHandler
 	 * @param string $basePath Relative or absolute path prefix to JS/CSS directory
 	 * @return void
 	 */
-	function AssetsInjector ()
+	function AssetsInjector ($modulePath = null, $debug = null, $exclude_texts = false, $exclude_libs = false): string
 	{
 
-        $return = '';
+        if (empty($modulePath)) $modulePath = $this->modulePath;
+        if (empty($debug)) $debug = $this->config['debug'];
 
-		$return = '<link rel="stylesheet" href="' . $this->modulePath . 'AuthHandler.css' . (isset($this->config['debug']) ? '?' . time() : '') . '">';
-		$return .= '<script src="' . $this->modulePath . 'AuthHandler.js' . (isset($this->config['debug']) ? '?' . time() : '') . '"></script>';
-        $return .= '<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>'."\n";
+		$return = '<link rel="stylesheet" href="' . $modulePath . 'AuthHandler.css' . ($debug ? '?' . time() : '') . '">';
+		$return .= '<script src="' . $modulePath . 'AuthHandler.js' . ($debug ? '?' . time() : '') . '"></script>';
+
+        if (!$exclude_libs) $return .= '<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>'."\n";
+
+        if (!$exclude_texts) {
+            $path = __DIR__ . '/../lang.json';
+            $json = file_get_contents($path);
+            $data = json_decode($json, true);
+            $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $json = str_replace('</script>', '<\/script>', $json);
+            $return .= "<script>window.AuthHandlerTexts = $json;</script>\n";
+        }
 
 		return $return;
 
@@ -796,7 +806,7 @@ class AuthHandler
 
         if (!empty($this->config['auto_session'])) session_start([
             'name' => $this->config['session_name'] ?? $this->config['site_name'],
-            'cookie_lifetime' => $this->config['cookie_lifetime'] ?? 86400,
+            'cookie_lifetime' => $this->config['cookie_lifetime'] ?? 86400 * 10,
             'cookie_secure' => true,
             'cookie_httponly' => false
         ]);

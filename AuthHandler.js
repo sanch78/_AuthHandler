@@ -429,18 +429,23 @@ class AuthHandler {
 
         if (this.ready) return true;
 
-        const langUrl = this.modulePath + 'lang.json' + (this.debug ? '?' + Date.now() : '');
-
-		try {
-			const res = await fetch(langUrl);
-			if (!res.ok) throw new Error('HTTP error ' + res.status);
-			const data = await res.json();
-			this.langData = data;
-		} catch (e) {
-			console.warn('Could not load lang.json:', e);
-		}
+        if (window.AuthHandlerTexts) this.langData = window.AuthHandlerTexts;
+        else {
+            const langUrl = this.modulePath + 'lang.json' + (this.debug ? '?' + Date.now() : '');
+            try {
+                const res = await fetch(langUrl);
+                if (!res.ok) throw new Error('HTTP error ' + res.status);
+                const data = await res.json();
+                this.langData = data;
+                window.AuthHandlerTexts = data;
+            } catch (e) {
+                console.warn('Could not load lang.json:', e);
+            }
+        }
 
         if (langData && typeof langData === 'object') this.setLangData(langData);
+
+        return true;
 
     }
 
