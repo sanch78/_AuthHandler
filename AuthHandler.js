@@ -3,7 +3,8 @@ class AuthHandler {
 	constructor ({
 	config = {},
     token = null,
-    data = null
+    data = null,
+    events = { onReady: null, onLogin: null, onLogout: null }
     }) {
 
         this.userToken = token;
@@ -30,6 +31,12 @@ class AuthHandler {
             recaptchaSitekey: null
         };
 
+        this.events = {
+            onReady: null,
+            onLogin: null,
+            onLogout: null
+        };
+
         this.config = Object.assign({}, defaultConfig, config);
 
         if (!this.config.modulePath) {
@@ -45,8 +52,11 @@ class AuthHandler {
         this.siteScript = this.config.siteScript;
         this.langCode = this.config.langCode;
         this.langData = {};
+        this.events = events;
 
-        if (this.config.autoIninit) this.init(this.config.onReady, this.config.langData);
+        if (this.config.langData) this.setLangData(this.config.langData);
+
+        if (this.config.autoIninit) this.init(this.events.onReady);
     
     }
 
@@ -54,25 +64,20 @@ class AuthHandler {
     /* ----- PUBLIC METHODS ----- */
 
 
-    async init (callback = null, langData = null) {
+    setEvent (eventName, callback) {
 
-        this._loadLang(langData).then(() => {
-            
-            if (typeof callback === 'string') {
-                try {
-                    const callbackFn = window[callback.trim()];
-                    if (typeof callbackFn === 'function') {
-                        callbackFn(this);
-                    } else {
-                        console.warn('Callback is not a function:', callback);
-                    }
-                } catch (e) {
-                    console.warn('Invalid onReady callback string:', callback, e);
-                    callback = null;
-                }
-            }
+        this.events[eventName] = callback;
+
+    }
+
+
+    async init (callback) {
+
+        this._loadLang().then(() => {
 
             this.ready = true;
+
+            this._initCallback(callback);
 
         });
 
@@ -110,7 +115,7 @@ class AuthHandler {
      */
     setLangData (langObject) {
 
-        if (typeof langObject !== 'object') return;
+		if (typeof langObject !== 'object') return;
 
 		for (const key in langObject) {
 			if (!this.langData[key]) this.langData[key] = {};
@@ -118,8 +123,8 @@ class AuthHandler {
 				this.langData[key][lang] = langObject[key][lang];
 			}
 		}
-
-    }
+			
+	}
 
     
     /**
@@ -399,12 +404,8 @@ class AuthHandler {
 
         const fallback = isSuccess ? 'Success.' : 'Something went wrong.';
         const message = typeof result.message === 'string' ? result.message : this.getText?.(key, fallback);
-
         const statusClass = isSuccess ? 'authhandler-feedback-success' : 'authhandler-feedback-error';
-        const title = isSuccess
-            ? this.getText?.('success_title', 'Success')
-            : this.getText?.('error_title', 'Error');
-
+        const title = isSuccess ? this.getText?.('success_title', 'Success') : this.getText?.('error_title', 'Error');
         const modalHtml = this._createModal(
             modalId,
             title,
@@ -421,29 +422,31 @@ class AuthHandler {
     /* ----- PRIVATE METHODS ----- */
 
 
-	/**
-	 * Loads the language file.
-	 * @returns {Promise<void>}
-	 */
-	async _loadLang (langData = null) {
+    /**
+     * Loads the `lang.json` file located in the same directory as `FormUtils.class.js`.
+     *
+     * Attempts to detect the current script tag, build the language file URL,
+     * and fetch the JSON content. If successful, stores the result in `this.langData`.
+     * Useful for error and label translations.
+     *
+     * @returns {Promise<boolean>} Resolves to true on success, false on failure.
+     */
+    async _loadLang () {
 
         if (this.ready) return true;
 
-        if (window.AuthHandlerTexts) this.langData = window.AuthHandlerTexts;
-        else {
-            const langUrl = this.modulePath + 'lang.json' + (this.debug ? '?' + Date.now() : '');
-            try {
-                const res = await fetch(langUrl);
-                if (!res.ok) throw new Error('HTTP error ' + res.status);
-                const data = await res.json();
-                this.langData = data;
-                window.AuthHandlerTexts = data;
-            } catch (e) {
-                console.warn('Could not load lang.json:', e);
-            }
-        }
+        if (typeof this.langData === 'object' && this.langData.length !== 0) return true;
 
-        if (langData && typeof langData === 'object') this.setLangData(langData);
+        const langUrl = this.modulePath + 'lang.json' + (this.debug ? '?' + Date.now() : '');
+        try {
+            const res = await fetch(langUrl);
+            if (!res.ok) throw new Error('HTTP error ' + res.status);
+            const data = await res.json();
+            this.langData = data;
+            window.FormUtilsTexts = data;
+        } catch (e) {
+            console.warn('Could not load lang.json:', e);
+        }
 
         return true;
 
@@ -1435,21 +1438,9 @@ class AuthHandler {
 
         this.logoutUser();
 
-        let callback = this.config.onLogout;
+        if (this.events.onLogout) this._initCallback(this.events.onLogout);
 
-        if (typeof callback === 'string') {
-            try {
-                callback = eval(callback);
-            } catch (e) {
-                console.warn('Invalid onLogout callback string:', this.config.onLogout);
-                callback = null;
-            }
-        }
-
-        if (typeof callback === 'function') callback();
-        else if (this.config.buttonsTarget) {
-            this.injectButtons();
-        }
+        else if (this.config.buttonsTarget) this.injectButtons();
 
     }
 
@@ -1463,20 +1454,38 @@ class AuthHandler {
 
         this.userToken = token;
 
-        let callback = this.config.onLogin;
+        if (this.events.onLogin) this._initCallback(this.events.onLogin);
+
+        else if (this.config.buttonsTarget) this.injectButtons();
+
+    }
+
+
+    /**
+     * Initializes a callback function with the provided context.
+     * @param {function|string} callback
+     * @return void
+     */
+    _initCallback (callback) {
+
+        if (!callback) return;
 
         if (typeof callback === 'string') {
             try {
                 callback = eval(callback);
             } catch (e) {
-                console.warn('Invalid onLogin callback string:', this.config.onLogin);
+                console.warn('Invalid callback string:', callback, e);
                 callback = null;
             }
         }
 
-        if (typeof callback === 'function') callback();
-        else if (this.config.buttonsTarget) {
-            this.injectButtons();
+        if (typeof callback === 'function') {
+            try {
+                callback(this);
+            } catch (e) {
+                console.warn('Invalid callback function:', callback, e);
+                callback = null;
+            }
         }
 
     }

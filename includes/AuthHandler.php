@@ -14,6 +14,7 @@ class AuthHandler
     protected $lang;
     protected $langLoaded = false;
     protected $texts = [];
+    protected $textsAll = [];
     protected $modulePath;
     protected $siteUrl;
     protected $siteScript;
@@ -46,11 +47,11 @@ class AuthHandler
         $this->InitSessionIfNeeded();
 
         foreach (['on_ready', 'on_login', 'on_logout'] as $key) {
-            if (isset($this->config[$key]) && is_string($this->config[$key])) {
-                $trimmed = trim($this->config[$key]);
-                $this->config[$key] = $trimmed ? [ $trimmed ] : [];
-            } elseif (!isset($this->config[$key]) || !is_array($this->config[$key])) {
+            if (!isset($this->config[$key])) {
                 $this->config[$key] = [];
+            }
+            elseif (!is_array($this->config[$key])) {
+                $this->config[$key] = [$this->config[$key]];
             }
         }
 
@@ -98,12 +99,15 @@ class AuthHandler
 		if (!file_exists($path)) {
 			trigger_error('lang.json not found', E_USER_WARNING);
 			$this->texts = [];
+            $this->textsAll = [];
 			$this->langLoaded = true;
 			return;
 		}
 
 		$json = file_get_contents($path);
 		$data = json_decode($json, true);
+
+        $this->textsAll = $data;
 
 		if (!is_array($data)) {
 			trigger_error('lang.json invalid format', E_USER_WARNING);
@@ -659,7 +663,6 @@ class AuthHandler
             $data = json_decode($json, true);
             $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             $json = str_replace('</script>', '<\/script>', $json);
-            $return .= "<script>window.AuthHandlerTexts = $json;</script>\n";
         }
 
 		return $return;
@@ -692,14 +695,23 @@ class AuthHandler
         foreach ($map as $sourceKey => $targetKey) {
             $raw = $this->config[$sourceKey] ?? null;
 
+            if (is_callable($raw)) {
+                $raw = $raw($this);
+            }
+
             if (is_array($raw)) {
                 foreach ($raw as $line) {
+                    if (is_callable($line)) {
+                        $line = $line($this);
+                    }
                     if (is_string($line) && trim($line)) {
-                        $callbacks[$targetKey][] = trim($line).(!preg_match('/;\s*$/', $line) ? ';' : '');
+                        $line = trim($line);
+                        $callbacks[$targetKey][] = $line . (!preg_match('/;\s*$/', $line) ? ';' : '');
                     }
                 }
             } elseif (is_string($raw) && trim($raw)) {
-                $callbacks[$targetKey][] = trim($raw).(!preg_match('/;\s*$/', $raw) ? ';' : '');
+                $raw = trim($raw);
+                $callbacks[$targetKey][] = $raw . (!preg_match('/;\s*$/', $raw) ? ';' : '');
             }
         }
 
@@ -713,7 +725,7 @@ class AuthHandler
             'modulePath' => $this->modulePath,
             'debug' => $this->config['debug'] ?? false,
             'langCode' => $this->config['lang_code'] ?? 'en',
-            'langData' => $this->config['lang_data'] ?? null,
+            'langData' => $this->config['lang_data'] ?? $this->textsAll,
             'providers' => $enabledProviders,
             'allowRegistration' => $this->config['allow_registration'] ?? false,
             'injectResetButton' => $this->config['inject_reset_button'] ?? false,
@@ -721,9 +733,6 @@ class AuthHandler
             'mode' => $this->config['mode'] ?? 'modal',
             'buttonsTarget' => $this->config['buttons_target'] ?? null,
             'autoIninit' => $autoInit,
-            'onReady'  => !empty($callbacks['onReady']) ? "_{$this->jsObject}OnReady" : null,
-            'onLogin' => !empty($callbacks['onLogin']) ? "_{$this->jsObject}OnLogin" : null,
-            'onLogout' => !empty($callbacks['onLogout']) ? "_{$this->jsObject}OnLogout" : null,
             'siteUrl' => $this->siteUrl,
             'siteScript' => $this->siteScript,
             'recaptchaSitekey' => !empty($this->config['recaptcha_sitekey']) ? $this->config['recaptcha_sitekey'] : null,
@@ -732,23 +741,25 @@ class AuthHandler
             return $v !== null;
         });
 
-        foreach ($callbacks as $hook => $lines) {
-            if (!count($lines)) continue;
-
-            $fnName = "_{$this->jsObject}" . ucfirst(str_replace('_', '', $hook));
-
-            $return .= "window.{$fnName} = function (instance) {";
-            foreach ($lines as $line) {
-                $return .= "{$line}";
-            }
-            $return .= "};\n";
-        }
+        // Build JS for callbacks directly (no globals)
+        $return = '';
 
         $return .= "window.{$this->jsObject} = new AuthHandler({";
-        $return .= "config:" . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . ", ";
-        $return .= "token:'" . ($_SESSION['auth_token'] ?? '') . "',";
-        $return .= "data:" . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . "";
-        $return .= "});\n";
+        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . ", ";
+        $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "', ";
+        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . ", ";
+        $return .= "events: {";
+        $eventParts = [];
+        foreach (['onReady','onLogin','onLogout'] as $ev) {
+            if (!empty($callbacks[$ev]) && is_array($callbacks[$ev])) {
+                $body = implode('', $callbacks[$ev]);
+                $eventParts[] = $ev . ": function(instance){ " . $body . " }";
+            } else {
+                $eventParts[] = $ev . ": null";
+            }
+        }
+        $return .= implode(', ', $eventParts);
+        $return .= "}});\n";
 
         return $return;
 
