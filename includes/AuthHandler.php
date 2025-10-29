@@ -62,12 +62,19 @@ class AuthHandler
         $this->sqlConfig = $this->config['sql_config'] ?? [];
         $this->lang = $this->config['lang'] ?? 'en';
 
+        $this->recaptcha = $this->config['recaptcha_config'] ?? [];
+		$this->recaptchaType = $this->recaptcha['recaptcha_type'] ?? null;
+        $this->recaptchaSiteKey = $this->recaptcha['recaptcha_sitekey'] ?? null;
+        $this->recaptchaSecret = $this->recaptcha['recaptcha_secret'] ?? null;
+        if (empty($this->recaptchaSecret) || empty($this->recaptchaSiteKey) || !in_array($this->recaptcha['recaptcha_type'] ?? '', ['v2'])) $this->recaptchaEnabled = false;
+        else $this->recaptchaEnabled = true;
+
         if (!empty($this->config['buttons_target'])) {
             $target = json_encode($this->config['buttons_target'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $this->config['on_ready'][] = "instance.injectButtons({$target});";
         }
-        if (empty($this->config['on_login'])) $this->config['on_login'][] = $this->config['on_login'] ?? "window.location.href = '{$this->siteUrl}';";
-        if (empty($this->config['on_logout'])) $this->config['on_logout'][] = $this->config['on_logout'] ?? "window.location.href = '{$this->siteUrl}';";
+        if (empty($this->config['on_login'])) $this->config['on_login'][] = $this->config['on_login'] ?? "window.location.reload();";
+        if (empty($this->config['on_logout'])) $this->config['on_logout'][] = $this->config['on_logout'] ?? "window.location.reload();";
         
         $this->LoadLang($this->lang);
 
@@ -122,7 +129,7 @@ class AuthHandler
 
 		$this->langLoaded = true;
 
-        $this->SetLangData($this->config['lang_data'] ?? []);
+        $this->SetLangData($this->config['lang_data'] ?? [], $langCode);
 
     }
 
@@ -133,15 +140,18 @@ class AuthHandler
      * @param array $overrides Associative array of key => translation
      * @return void
      */
-    public function SetLangData (array $overrides): void
+    public function SetLangData (array $overrides, string $langCode = 'en'): void
     {
+
+		if (empty($overrides)) return;
 
         if (!$this->langLoaded) {
             $this->LoadLang();
         }
 
         foreach ($overrides as $key => $value) {
-            $this->texts[$key] = $value;
+            $this->texts[$key] = $value[$langCode];
+			$this->textsAll[$key] = $value;
         }
 
     }
@@ -349,12 +359,14 @@ class AuthHandler
 
         elseif ($password !== $confirm) $errors['password'] = 'password_mismatch';
 
-        if ($this->config['recaptcha_type'] === 'v2') {
-            if (!isset($_SESSION['registration_seed']) || $data['seed'] !== $_SESSION['registration_seed']) {
-                unset($_SESSION['recaptcha_token']);
-            }
-            if (!$this->VerifyRecaptchaToken($data['recaptcha_token'])) {
-                $errors['recaptcha'] = 'recaptcha_invalid';
+        if ($this->recaptchaEnabled) {
+            if ($this->recaptchaType === 'v2') {
+                if (!isset($_SESSION['registration_seed']) || $data['seed'] !== $_SESSION['registration_seed']) {
+                    unset($_SESSION['recaptcha_token']);
+                }
+                if (!$this->VerifyRecaptchaToken($data['recaptcha_token'])) {
+                    $errors['recaptcha'] = 'recaptcha_invalid';
+                }
             }
         }
 
@@ -646,7 +658,7 @@ class AuthHandler
 	 * @param string $basePath Relative or absolute path prefix to JS/CSS directory
 	 * @return void
 	 */
-	function AssetsInjector ($modulePath = null, $debug = null, $exclude_texts = false, $exclude_libs = false): string
+	function AssetsInjector ($modulePath = null, $debug = null, $exclude_libs = false): string
 	{
 
         if (empty($modulePath)) $modulePath = $this->modulePath;
@@ -656,14 +668,6 @@ class AuthHandler
 		$return .= '<script src="' . $modulePath . 'AuthHandler.js' . ($debug ? '?' . time() : '') . '"></script>';
 
         if (!$exclude_libs) $return .= '<script src="https://www.google.com/recaptcha/api.js?render=explicit" async defer></script>'."\n";
-
-        if (!$exclude_texts) {
-            $path = __DIR__ . '/../lang.json';
-            $json = file_get_contents($path);
-            $data = json_decode($json, true);
-            $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            $json = str_replace('</script>', '<\/script>', $json);
-        }
 
 		return $return;
 
@@ -725,7 +729,7 @@ class AuthHandler
             'modulePath' => $this->modulePath,
             'debug' => $this->config['debug'] ?? false,
             'langCode' => $this->config['lang_code'] ?? 'en',
-            'langData' => $this->config['lang_data'] ?? $this->textsAll,
+            'langData' => $this->textsAll,
             'providers' => $enabledProviders,
             'allowRegistration' => $this->config['allow_registration'] ?? false,
             'injectResetButton' => $this->config['inject_reset_button'] ?? false,
@@ -735,8 +739,8 @@ class AuthHandler
             'autoIninit' => $autoInit,
             'siteUrl' => $this->siteUrl,
             'siteScript' => $this->siteScript,
-            'recaptchaSitekey' => !empty($this->config['recaptcha_sitekey']) ? $this->config['recaptcha_sitekey'] : null,
-            'recaptchaType' => !empty($this->config['recaptcha_type']) ? $this->config['recaptcha_type'] : null
+            'recaptchaSiteKey' => !$this->recaptchaEnabled ? null : $this->recaptchaSiteKey,
+            'recaptchaType' => !$this->recaptchaEnabled ? null : $this->recaptchaType
         ], function ($v) {
             return $v !== null;
         });
@@ -745,9 +749,9 @@ class AuthHandler
         $return = '';
 
         $return .= "window.{$this->jsObject} = new AuthHandler({";
-        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . ", ";
+        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT) . ", ";
         $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "', ";
-        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK ) . ", ";
+        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE) . ", ";
         $return .= "events: {";
         $eventParts = [];
         foreach (['onReady','onLogin','onLogout'] as $ev) {
@@ -1613,15 +1617,17 @@ class AuthHandler
     function VerifyRecaptchaToken ($token) 
     {
 
-        if (!isset($this->config['recaptcha_secret'])) return true;
+        if (!$this->recaptchaEnabled) return true;
 
-        if (!isset($this->config['recaptcha_type'])) return true;
+        if (!isset($this->recaptchaSecret)) return true;
 
-        if ($this->config['recaptcha_type'] !== 'v2') return true;
+        if (!isset($this->recaptchaType)) return true;
+
+        if ($this->recaptchaType !== 'v2') return true;
 
         if (isset($_SESSION['recaptcha_token'])) return true;
 
-        $secret = $this->config['recaptcha_secret'] ?? null;
+        $secret = $this->recaptchaSecret;
 
         if (empty($token)) return false;
 

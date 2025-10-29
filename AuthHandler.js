@@ -9,6 +9,11 @@ class AuthHandler {
 
         this.userToken = token;
         this.userData = data;
+        this.events = {
+            onReady: null,
+            onLogin: null,
+            onLogout: null
+        };
 
         const defaultConfig = {
             modulePath: null,
@@ -22,19 +27,10 @@ class AuthHandler {
             injectResetButton: false,
             mode: 'modal',
             buttonsTarget: null,
-            onReady: null,
-            onLogin: null,
-            onLogout: null,
             siteUrl: window.location.origin + window.location.pathname,
             siteScript: window.location.pathname,
             recaptchaType: null,
-            recaptchaSitekey: null
-        };
-
-        this.events = {
-            onReady: null,
-            onLogin: null,
-            onLogout: null
+            recaptchaSiteKey: null
         };
 
         this.config = Object.assign({}, defaultConfig, config);
@@ -44,7 +40,7 @@ class AuthHandler {
         }
         this.modulePath = this.config.modulePath.endsWith('/') ? this.config.modulePath : this.config.modulePath + '/';
 
-        if (!this.config.recaptchaSitekey) this.config.recaptchaType = null;
+        if (!this.config.recaptchaSiteKey) this.config.recaptchaType = null;
 
         this.ready = false;
         this.debug = this.config.debug;
@@ -517,7 +513,7 @@ class AuthHandler {
             const recaptchaContainer = document.getElementById('recaptcha-container');
             if (recaptchaContainer) {
                 grecaptcha.render('recaptcha-container', {
-                    sitekey: this.config.recaptchaSitekey,
+                    sitekey: this.config.recaptchaSiteKey,
                     theme: 'light'
                 });
             }
