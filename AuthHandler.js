@@ -1238,7 +1238,6 @@ class AuthHandler {
         })
         .then(res => res.json())
         .then(response => {
-            if (modalEl) modalEl.classList.remove('submitting');
             if (response.success) {
                 onSuccess(response);
             } else {
@@ -1253,6 +1252,7 @@ class AuthHandler {
             if (formType) this.showFormFeedback(formType, { email: 'server_error' });
         })
         .finally(() => {
+            if (modalEl) modalEl.classList.remove('submitting');
             if (btn && btn.dataset.originalLabel) {
                 btn.innerHTML = btn.dataset.originalLabel;
                 btn.disabled = false;

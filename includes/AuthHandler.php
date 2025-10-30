@@ -351,7 +351,8 @@ class AuthHandler
         if (empty($password)) $errors['password'] = 'missing_fields';
 
         elseif (!isset($errors['password']) && !empty($this->config['password_pattern'])) {
-            $pattern = '#'.$this->config['password_pattern'].'#';
+            // use Unicode modifier so \p{L} in pattern works correctly
+            $pattern = '#'.$this->config['password_pattern'].'#u';
             if (!preg_match($pattern, $password)) {
                 $errors['password'] = 'password_invalid';
             }
@@ -548,7 +549,7 @@ class AuthHandler
         elseif (strlen($password) < 8) $errors['password'] = 'password_too_short';
         
         elseif (!empty($this->config['password_pattern'])) {
-            $pattern = '#' . $this->config['password_pattern'] . '#';
+            $pattern = '#' . $this->config['password_pattern'] . '#u';
             if (!preg_match($pattern, $password)) {
                 $errors['password'] = 'password_invalid';
             }
@@ -749,9 +750,9 @@ class AuthHandler
         $return = '';
 
         $return .= "window.{$this->jsObject} = new AuthHandler({";
-        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT) . ", ";
+        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
         $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "', ";
-        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE) . ", ";
+        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
         $return .= "events: {";
         $eventParts = [];
         foreach (['onReady','onLogin','onLogout'] as $ev) {
@@ -1469,8 +1470,15 @@ class AuthHandler
         $sql = "UPDATE {$table} SET " . implode(', ', $assignments) . " WHERE {$fs['key']} = :id";
         $stmt = $this->pdo->prepare($sql);
 
-        return $stmt->execute($params);
+        foreach ($params as $pname => $pval) {
+            if ($pval === null) {
+                $stmt->bindValue($pname, null, PDO::PARAM_NULL);
+            } else {
+                $stmt->bindValue($pname, $pval);
+            }
+        }
 
+        return $stmt->execute();
     }
 
 
@@ -1555,7 +1563,6 @@ class AuthHandler
         return $this->SendEmailFromTemplate(
             $toEmail,
             __DIR__ . '/templates/email_regcheck.html',
-            $this->texts['verify_subject'] ?? 'Email verification',
             [
                 '{regkey}' => $regkey,
                 '{verify_url}' => $link
@@ -1602,6 +1609,7 @@ class AuthHandler
 
         $command = strtr($cfg['command'], [
             '{to}'       => $toEmail,
+            '{subject}'  => addslashes($subject) . ' - ' . $this->config['site_name'],
             '{subject}'  => addslashes($subject) . ' - ' . $this->config['site_name'],
             '{bodyfile}' => $tmpFile
         ]);
