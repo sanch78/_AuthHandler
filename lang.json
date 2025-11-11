@@ -179,6 +179,10 @@
 		"en": "Confirm new password",
 		"hu": "Új jelszó megerősítése"
 	},
+  "session_timeout_notice": {
+    "en": "Your session has expired due to inactivity. Please log in again.",
+    "hu": "A munkameneted inaktivitás miatt lejárt. Kérlek, jelentkezz be újra."
+  },  
 	"reset1_email_notice": {
 		"en": "Enter your email address and we’ll send you a verification code.",
 		"hu": "Add meg az email címed, és elküldünk egy ellenőrző kódot."
@@ -246,5 +250,9 @@
   "recaptcha_invalid": {
     "en": "Invalid reCAPTCHA. Please try again.",
     "hu": "Érvénytelen reCAPTCHA. Kérlek, próbáld újra."
+  },
+  "login_persistent_label": {
+    "en": "Stay signed in",
+    "hu": "Maradjak bejelentkezve"
   }
 }

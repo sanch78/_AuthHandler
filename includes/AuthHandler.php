@@ -46,7 +46,7 @@ class AuthHandler
 
         $this->InitSessionIfNeeded();
 
-        foreach (['on_ready', 'on_login', 'on_logout'] as $key) {
+        foreach (['on_ready', 'on_login', 'on_logout', 'on_timeout'] as $key) {
             if (!isset($this->config[$key])) {
                 $this->config[$key] = [];
             }
@@ -61,6 +61,7 @@ class AuthHandler
         $this->jsObject = $this->config['js_object'] ?? 'authHandler';
         $this->sqlConfig = $this->config['sql_config'] ?? [];
         $this->lang = $this->config['lang'] ?? 'en';
+        $this->sessionExpiryTimeoutSecs = $this->config['session_expiry_timeout_secs'] ?? 3600;
 
         $this->recaptcha = $this->config['recaptcha_config'] ?? [];
 		$this->recaptchaType = $this->recaptcha['recaptcha_type'] ?? null;
@@ -694,7 +695,8 @@ class AuthHandler
         $map = [
             'on_ready'  => 'onReady',
             'on_login' => 'onLogin',
-            'on_logout' => 'onLogout'
+            'on_logout' => 'onLogout',
+            'on_timeout' => 'onTimeout'
         ];
 
         foreach ($map as $sourceKey => $targetKey) {
@@ -734,6 +736,8 @@ class AuthHandler
             'providers' => $enabledProviders,
             'allowRegistration' => $this->config['allow_registration'] ?? false,
             'injectResetButton' => $this->config['inject_reset_button'] ?? false,
+            'allowPersistentLogin' => $this->config['allow_persistent_login'] ?? false,
+            'sessionExpiryTimeoutSecs' => $this->sessionExpiryTimeoutSecs,
             'providersOnRegistration' => $this->config['providers_on_registration'] ?? false,
             'mode' => $this->config['mode'] ?? 'modal',
             'buttonsTarget' => $this->config['buttons_target'] ?? null,
@@ -750,12 +754,12 @@ class AuthHandler
         $return = '';
 
         $return .= "window.{$this->jsObject} = new AuthHandler({";
-        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
+        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
         $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "', ";
-        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
+        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
         $return .= "events: {";
         $eventParts = [];
-        foreach (['onReady','onLogin','onLogout'] as $ev) {
+        foreach ($map as $ev) {
             if (!empty($callbacks[$ev]) && is_array($callbacks[$ev])) {
                 $body = implode('', $callbacks[$ev]);
                 $eventParts[] = $ev . ": function(instance){ " . $body . " }";
@@ -816,16 +820,35 @@ class AuthHandler
     protected function InitSessionIfNeeded (): void
     {
 
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            return;
+        if (session_status() === PHP_SESSION_ACTIVE || empty($this->config['auto_session']) || !$this->config['auto_session']) return;
+
+        $persist = isset($_COOKIE['ah_auth_allow_persistent']) && $_COOKIE['ah_auth_allow_persistent'] === '1';
+        $cookie_lifetime   = $persist ? 86400 * ($this->config['session_cookie_lifetime_days'] ?? 365) : 0;
+        $inactivity_limit  = $persist ? 86400 * 365 : $this->config['session_expiry_timeout_secs'];
+        ini_set('session.gc_maxlifetime', (string)$inactivity_limit);
+
+        session_start([
+            'name' => $this->config['session_name'] ?? $this->config['site_name'],
+            'cookie_lifetime' => $cookie_lifetime,
+            'cookie_secure' => true,
+            'cookie_httponly' => false, 
+            'gc_maxlifetime' => $inactivity_limit
+        ]);
+
+        if (time() - ($_SESSION['last_activity'] ?? 0) > $inactivity_limit) {
+            session_unset();
+            session_destroy();
+            session_start([
+                'name' => $this->config['session_name'] ?? $this->config['site_name'],
+                'cookie_lifetime' => $cookie_lifetime,
+                'cookie_secure' => true,
+                'cookie_httponly' => false, 
+                'gc_maxlifetime' => $inactivity_limit
+            ]);
         }
 
-        if (!empty($this->config['auto_session'])) session_start([
-            'name' => $this->config['session_name'] ?? $this->config['site_name'],
-            'cookie_lifetime' => $this->config['cookie_lifetime'] ?? 86400 * 10,
-            'cookie_secure' => true,
-            'cookie_httponly' => false
-        ]);
+        $_SESSION['last_activity'] = time();
+
 
     }
 

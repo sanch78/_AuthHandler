@@ -12,7 +12,8 @@ class AuthHandler {
         this.events = {
             onReady: null,
             onLogin: null,
-            onLogout: null
+            onLogout: null,
+            onTimeout: null
         };
 
         const defaultConfig = {
@@ -25,6 +26,7 @@ class AuthHandler {
             allowRegistration: true,
             providersOnRegistration: false,
             injectResetButton: false,
+            allowPersistentLogin: false,
             mode: 'modal',
             buttonsTarget: null,
             siteUrl: window.location.origin + window.location.pathname,
@@ -47,6 +49,7 @@ class AuthHandler {
         this.siteUrl = this.config.siteUrl;
         this.siteScript = this.config.siteScript;
         this.langCode = this.config.langCode;
+        this.allowPersistentLogin = this.config.allowPersistentLogin;
         this.langData = {};
         this.events = events;
 
@@ -74,6 +77,8 @@ class AuthHandler {
             this.ready = true;
 
             this._initCallback(callback);
+
+            this.sessionTimeout(this.config.sessionExpiryTimeoutSecs ?? 3600);
 
         });
 
@@ -123,6 +128,32 @@ class AuthHandler {
 	}
 
     
+    sessionTimeout (secs) {
+
+        if (this._getCookie('ah_auth_allow_persistent') === '1') return;
+
+        if (secs) this.sessionExpiryTimeoutSecs = secs;
+
+        if (!this.userToken) return;	
+
+        clearTimeout(this.sessionExpiryTimerId);
+
+        this.sessionExpiryTimerId = setTimeout(() => this.sessionExpired(), this.sessionExpiryTimeoutSecs * 1000);
+
+    }
+
+
+    sessionExpired () {
+
+        this.logout();
+
+        if (this.events.onTimeout) this._initCallback(this.events.onTimeout);
+
+        else this.login('timeout');
+    
+    }
+
+
     /**
      * Renders the login button.
      * @returns {HTMLElement} The login button element.
@@ -544,11 +575,17 @@ class AuthHandler {
             emailNotice.className += ' authhandler-success-notice';
             if (data?.type === 'verify') emailNotice.innerHTML = `<p>${this.getText('verify_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
             if (data?.type === 'reset') emailNotice.innerHTML = `<p>${this.getText('reset_success', 'Your email has been successfully verified. You can now log in.')}</p>`;
-            if (includeLoginNotice) {
+
+            if (includeLoginNotice === true || includeLoginNotice === 'providers') {
                 emailNotice.innerHTML = `<p>${this.getText('login_email_notice', "If you haven't registered yet, click the link or use one of the providers below.")}</p>`;
                 const resetElem = this._addSuggestion('signup', true);
                 if (resetElem) emailNotice.appendChild(resetElem);
             }
+
+            if (includeLoginNotice === 'timeout') {
+                emailNotice.innerHTML = `<p>${this.getText('session_timeout_notice', "Your session has expired due to inactivity. Please log in again.")}</p>`;
+            }
+
         } else {
             emailNotice.setAttribute('data-persistent', '1');
             emailNotice.innerHTML = `<p></p>`;            
@@ -574,6 +611,37 @@ class AuthHandler {
         btn.textContent = this.getText('login_submit', 'Sign in');
 
         form.append(emailNotice, email, passwordNotice, password, btn);
+
+        if (this.allowPersistentLogin === true) {
+            const persistWrap = document.createElement('div');
+            persistWrap.className = 'authhandler-notice';
+
+            const persistContent = document.createElement('div');
+            persistContent.className = 'authhandler-persistent-login';
+
+            const persistId = 'login_persistent';
+            const persist = document.createElement('input');
+            persist.type = 'checkbox';
+            persist.id = persistId;
+            persist.name = 'login_persistent';
+
+            persist.checked = this._getCookie('ah_auth_allow_persistent') === '1';
+            persist.addEventListener('change', () => {
+                const val = persist.checked ? '1' : '';
+                this._setCookie('ah_auth_allow_persistent', val, persist.checked ? 365 : 0);
+            });
+
+            const label = document.createElement('label');
+            label.setAttribute('for', persistId);
+            label.className = 'authhandler-persistent-label';
+            label.textContent = this.getText('login_persistent_label', 'Stay signed in');
+
+            persistContent.append(persist, label);
+            persistWrap.appendChild(persistContent);
+            form.append(persistWrap);
+        } else {
+            
+        }
 
         const providers = this._renderProviderButtons('login_providers_notice', 'You can log in with one of the following providers:');
         if (providers) form.appendChild(providers);
@@ -1089,6 +1157,30 @@ class AuthHandler {
     }
 
 
+    _getCookie (name) {
+
+        const row = document.cookie.split('; ').find(r => r.startsWith(name + '='));
+
+        return row ? decodeURIComponent(row.split('=')[1]) : '';
+
+    }
+
+
+    _setCookie (name, value, days = 365) {
+
+        let attrs = '; path=/; samesite=lax';
+        if (location.protocol === 'https:') attrs += '; secure';
+        if (!value || days <= 0) {
+            document.cookie = `${name}=; Max-Age=0${attrs}`;
+            return;
+        }
+
+        const maxAge = Math.floor(days * 86400);
+        document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAge}${attrs}`;
+
+    }
+
+
     /**
      * Handles login form submission via AJAX.
      *
@@ -1104,6 +1196,15 @@ class AuthHandler {
             email: emailInput?.value.trim() || '',
             password: passInput?.value || ''
         };
+
+        if (this.allowPersistentLogin === true) {
+            const persistInput = form.querySelector('input[name="login_persistent"]');
+            if (persistInput) {
+                const persist = persistInput.checked ? 1 : 0;
+                payload.login_persistent = persist;
+                this._setCookie('ah_auth_allow_persistent', persist ? '1' : '', persist ? 365 : 0);
+            }
+        }
 
         this._submitFormHelper(
             form,
@@ -1434,9 +1535,9 @@ class AuthHandler {
 
         this.logoutUser();
 
-        if (this.events.onLogout) this._initCallback(this.events.onLogout);
+        if (this.config.buttonsTarget) this.injectButtons();
 
-        else if (this.config.buttonsTarget) this.injectButtons();
+        if (this.events.onLogout) this._initCallback(this.events.onLogout);
 
     }
 

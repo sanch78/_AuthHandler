@@ -57,6 +57,10 @@
     margin-top: 0;
 }
 
+.authhandler-notice:has(.authhandler-persistent-login) {
+	margin-bottom: 0;
+}
+
 .authhandler-notice p {
     margin: 0;
     line-height: 1.5;
@@ -282,5 +286,32 @@
     .authhandler-provider-icon {
         flex: 0 0 20%; 
     }
+}
+
+.authhandler-persistent-login {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	color: #212529;
+}
+
+.authhandler-persistent-login input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	margin: 0;
+	accent-color: #0d6efd;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.authhandler-persistent-login input[type="checkbox"]:focus-visible {
+	outline: 2px solid rgba(13, 110, 253, 0.35);
+	outline-offset: 2px;
+}
+
+.authhandler-persistent-label {
+	user-select: none;
+	font-size: 0.95rem;
+	cursor: pointer;
 }
 
