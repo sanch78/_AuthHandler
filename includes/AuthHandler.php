@@ -817,30 +817,34 @@ class AuthHandler
      *
      * @return void
      */
-    protected function InitSessionIfNeeded (): void
+    public function InitSessionIfNeeded ($doDestroy = false): void
     {
 
-        if (session_status() === PHP_SESSION_ACTIVE || empty($this->config['auto_session']) || !$this->config['auto_session']) return;
+        if (empty($this->config['auto_session']) || !$this->config['auto_session']) return;
+
+        if (session_status() === PHP_SESSION_ACTIVE && !$doDestroy) return;
 
         $persist = isset($_COOKIE['ah_auth_allow_persistent']) && $_COOKIE['ah_auth_allow_persistent'] === '1';
         $cookie_lifetime   = $persist ? 86400 * ($this->config['session_cookie_lifetime_days'] ?? 365) : 0;
         $inactivity_limit  = $persist ? 86400 * 365 : $this->config['session_expiry_timeout_secs'];
         ini_set('session.gc_maxlifetime', (string)$inactivity_limit);
 
-        session_start([
+        if (!$doDestroy) session_start([
             'name' => $this->config['session_name'] ?? $this->config['site_name'],
             'cookie_lifetime' => $cookie_lifetime,
-            'cookie_secure' => true,
+            'cookie_path' => $this->config['session_cookie_path'] ?? '/',
+            'cookie_secure' => true,            
             'cookie_httponly' => false, 
             'gc_maxlifetime' => $inactivity_limit
         ]);
 
-        if (time() - ($_SESSION['last_activity'] ?? 0) > $inactivity_limit) {
+        if ($doDestroy || time() - ($_SESSION['last_activity'] ?? 0) > $inactivity_limit) {
             session_unset();
             session_destroy();
             session_start([
                 'name' => $this->config['session_name'] ?? $this->config['site_name'],
                 'cookie_lifetime' => $cookie_lifetime,
+                'cookie_path' => $this->config['session_cookie_path'] ?? '/',
                 'cookie_secure' => true,
                 'cookie_httponly' => false, 
                 'gc_maxlifetime' => $inactivity_limit
@@ -848,7 +852,6 @@ class AuthHandler
         }
 
         $_SESSION['last_activity'] = time();
-
 
     }
 
@@ -925,7 +928,9 @@ class AuthHandler
         unset($_SESSION['auth_token']);
         unset($_SESSION['auth_user']);
         unset($_SESSION['user_id']);
-        unset($_SESSION['HYBRIDAUTH::STORAGE']);
+        unset($_SESSION['HYBRIDAUTH::STORAGE']); 
+
+        $this->InitSessionIfNeeded(true);
 
         return true;
 
@@ -1542,6 +1547,73 @@ class AuthHandler
         }
 
         return $ok;
+
+    }
+
+
+    /**
+     * Deletes a user account from the database.
+     * - Accepts a single parameter: the user ID. If null, defaults to the currently logged-in user.
+     * - Removes any linked OAuth provider rows.
+     * - If the deleted user is the currently logged-in user, logs them out and clears session state.
+     *
+     * @param int|null $userId The user's ID to delete, or null for current user
+     * @return bool True on success, false otherwise
+     */
+    public function DeleteUser (int $userId = null): bool
+    {
+        // Resolve user id
+        if ($userId === null) {
+            $userId = $this->userId ?? null;
+        }
+        if ($userId === null) {
+            return false;
+        }
+
+        list($usersTable, $fs) = $this->GetSqlMeta();
+        list($providersTable, $pfs) = $this->GetProvidersSqlMeta();
+
+        try {
+            $hasTxn = $this->pdo->inTransaction();
+            if (!$hasTxn) {
+                $this->pdo->beginTransaction();
+            }
+
+            // First delete provider links (no ON DELETE CASCADE defined).
+            $stmt = $this->pdo->prepare("DELETE FROM {$providersTable} WHERE {$pfs['key']} = :id");
+            $stmt->execute([':id' => $userId]);
+
+            // Then delete the user row.
+            $stmt = $this->pdo->prepare("DELETE FROM {$usersTable} WHERE {$fs['key']} = :id");
+            $stmt->execute([':id' => $userId]);
+            $deleted = $stmt->rowCount();
+
+            if (!$hasTxn) {
+                $this->pdo->commit();
+            }
+
+            // If we deleted the current user, clear runtime state.
+            if ($deleted > 0) {
+                if ($this->userId === $userId) {
+                    $this->LogoutUser();
+                    $this->userId = null;
+                    $this->userData = [];
+                }
+                return true;
+            }
+
+            // Nothing deleted -> treat as failure
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            return false;
+
+        } catch (Exception $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            return false;
+        }
 
     }
 
