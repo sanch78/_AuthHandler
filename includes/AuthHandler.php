@@ -1244,7 +1244,7 @@ class AuthHandler
      * @param bool $includeAdditional Whether to include additional fields from sql_config
      * @return array|null Full user row as associative array, or null if not found
      */
-    protected function FindUserByFields (array $conditions, bool $includeAdditional = false): ?array
+    public function FindUserByFields (array $conditions, bool $includeAdditional = false): ?array
     {
 
         list($table, $fs) = $this->GetSqlMeta();
@@ -1291,6 +1291,20 @@ class AuthHandler
 
         return $result;
 
+    }
+    
+
+    /**
+     * Convenience checker: returns true if any user has the given page URL.
+     * Uses FindUsersByWhere to search by logical field 'page_url'.
+     *
+     * @param string $pageUrl
+     * @return bool
+     */
+    public function IsPageUrlInUse (string $pageUrl): bool
+    {
+        $rows = $this->FindUsersByWhere(['page_url' => $pageUrl], [], true);
+        return !empty($rows);
     }
 
 
