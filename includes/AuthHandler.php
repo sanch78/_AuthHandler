@@ -352,7 +352,6 @@ class AuthHandler
         if (empty($password)) $errors['password'] = 'missing_fields';
 
         elseif (!isset($errors['password']) && !empty($this->config['password_pattern'])) {
-            // use Unicode modifier so \p{L} in pattern works correctly
             $pattern = '#'.$this->config['password_pattern'].'#u';
             if (!preg_match($pattern, $password)) {
                 $errors['password'] = 'password_invalid';
@@ -1672,6 +1671,7 @@ class AuthHandler
         return $this->SendEmailFromTemplate(
             $toEmail,
             __DIR__ . '/templates/email_regcheck.html',
+            $this->texts['verify_subject'] ?? 'Email verification',
             [
                 '{regkey}' => $regkey,
                 '{verify_url}' => $link
