@@ -659,11 +659,8 @@ class AuthHandler
 	 * @param string $basePath Relative or absolute path prefix to JS/CSS directory
 	 * @return void
 	 */
-	function AssetsInjector ($modulePath = null, $debug = null, $exclude_libs = false): string
+	public static function AssetsInjector ($modulePath = './AuthHandler/', $debug = false, $exclude_libs = false): string
 	{
-
-        if (empty($modulePath)) $modulePath = $this->modulePath;
-        if (empty($debug)) $debug = $this->config['debug'];
 
 		$return = '<link rel="stylesheet" href="' . $modulePath . 'AuthHandler.css' . ($debug ? '?' . time() : '') . '">';
 		$return .= '<script src="' . $modulePath . 'AuthHandler.js' . ($debug ? '?' . time() : '') . '"></script>';
