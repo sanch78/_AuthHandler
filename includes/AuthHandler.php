@@ -1774,7 +1774,7 @@ class AuthHandler
      * @param string $providerId The provider's user ID
      * @return array|null User data or null if not found
      */
-    protected function FindUserByOAuthProvider(string $providerName, string $providerId): ?array
+    protected function FindUserByOAuthProvider (string $providerName, string $providerId): ?array
     {
 
         list($usersTable, $fs) = $this->GetSqlMeta();
@@ -1817,7 +1817,7 @@ class AuthHandler
      * @param string $providerId The provider's user ID
      * @return bool True on success
      */
-    protected function LinkOAuthProvider(int $userId, string $providerName, string $providerId): bool
+    protected function LinkOAuthProvider (int $userId, string $providerName, string $providerId): bool
     {
 
         list($providersTable, $pfs) = $this->GetProvidersSqlMeta();
@@ -1851,7 +1851,7 @@ class AuthHandler
      *
      * @return string The client's IP address
      */
-    protected function GetClientIp(): string
+    public function GetClientIp (): string
     {
 
         $ipHeaders = [
