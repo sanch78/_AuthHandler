@@ -10,12 +10,6 @@ class AuthHandler {
         this.userToken = token;
         this.userData = data;
 
-        // True if the account supports password authentication (not provider-only).
-        // Prefer server-provided flag; fallback for older payloads.
-        this.hasPassword = !!(data && typeof data === 'object' && data.hasPassword);
-        if (!this.hasPassword && data && typeof data === 'object' && Object.prototype.hasOwnProperty.call(data, 'user_password')) {
-            this.hasPassword = !!data.user_password;
-        }
         this.events = {
             onReady: null,
             onLogin: null,
@@ -1305,6 +1299,7 @@ class AuthHandler {
                     }
                     this._loginSuccess(response.token);
                 }
+                this.userData = response.data || null;
             },
             null,
             'login'
@@ -1669,7 +1664,8 @@ class AuthHandler {
     logoutUser () {
 
         this.userToken = null;
-		this.hasPassword = false;
+        
+        this.userData = null;
 
     }
 

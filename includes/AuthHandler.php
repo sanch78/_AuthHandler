@@ -340,7 +340,8 @@ class AuthHandler
 
         return [
             'success' => true,
-            'token'   => $token
+            'token' => $token,
+            'data' => $this->userData
         ];
 
     }
@@ -905,7 +906,7 @@ class AuthHandler
         $return .= "window.{$this->jsObject} = new AuthHandler({";
         $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
         $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "', ";
-        $return .= "data: " . json_encode($_SESSION['auth_user'] ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
+        $return .= "data: " . json_encode($this->userData ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
         $return .= "events: {";
         $eventParts = [];
         foreach ($map as $ev) {
@@ -1040,11 +1041,6 @@ class AuthHandler
 
         $user['user_id'] = $user['key'];
 
-        $hasPassword = !empty($user['user_password']);
-        $user['hasPassword'] = $hasPassword;
-		$this->hasPassword = $hasPassword;
-        
-
         $_SESSION['auth_token'] = $token;
         $_SESSION['auth_user'] = $user;
 
@@ -1062,6 +1058,9 @@ class AuthHandler
         }
 
         $this->userId = $user['key'];
+		$this->hasPassword = !empty($user['user_password']);
+        $this->userData['has_password'] = $this->hasPassword;
+        unset($this->userData['user_password']);
 
         $_SESSION['user_id'] = $this->userId;
 
