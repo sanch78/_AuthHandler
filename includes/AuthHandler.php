@@ -20,9 +20,13 @@ class AuthHandler
     protected $siteScript;
     protected $lastActionResult = null;
     protected $lastActionData = null;
+
+    protected $emailProcedure = null;
+    protected $emailProcedureSends = false;
     
     public $userData = [];
     public $userId = null;
+    public $hasPassword = false;
 
     public function __construct ($config) {
 
@@ -86,6 +90,35 @@ class AuthHandler
         if (($this->config['auto_request_handler'] ?? true)) {
             $this->HandleRequest();
         }
+
+    }
+
+
+    /**
+     * Configure an optional external email procedure.
+     *
+     * This allows overriding how AuthHandler formats and/or sends emails.
+     * You can set this after instantiation (not in the constructor) as requested.
+     *
+     * Callback signature (suggested):
+     *   function (string $type, array $payload, string $action) {
+     *     // $type: e.g. 'reset', 'verify'
+     *     // $action: 'send' (handler should send) or 'format' (handler should only format)
+     *     // return:
+     *     //  - bool: sending result (typically for 'send')
+     *     //  - string: formatted HTML body (typically for 'format')
+     *     //  - array: ['subject' => string|null, 'body' => string|null, 'sent' => bool|null]
+     *   }
+     *
+     * @param callable|null $procedure External handler, or null to clear.
+     * @param bool $procedureSends If true, external handler sends the email; otherwise it only formats and AuthHandler posts it.
+     * @return void
+     */
+    public function SetEmailProcedure (?callable $procedure, bool $procedureSends = false): void
+    {
+
+        $this->emailProcedure = $procedure;
+        $this->emailProcedureSends = ($procedure !== null) ? (bool)$procedureSends : false;
 
     }
 
@@ -207,6 +240,10 @@ class AuthHandler
                 $result = $this->ApiLogout();
                 break;
 
+            case 'change_password':
+                $result = $this->ApiChangePassword($data);
+                break;
+
             case 'reset1':
                 $result = $this->ApiReset1($data);
                 break;
@@ -320,6 +357,113 @@ class AuthHandler
 
         if (session_status() === PHP_SESSION_ACTIVE) {
             $this->LogoutUser();
+        }
+
+        return [
+            'success' => true
+        ];
+
+    }
+
+
+    /**
+     * Changes password for the currently logged-in user.
+     *
+     * Expects: old_password, password, confirm
+     *
+     * @param array $data
+     * @return array
+     */
+    public function ApiChangePassword (array $data): array
+    {
+
+        if (!$this->IsLoggedIn() || empty($_SESSION['user_id'])) {
+            return [
+                'success' => false,
+                'errors' => [
+                    'old_password' => 'not_logged_in'
+                ]
+            ];
+        }
+
+        $userId = (int)($_SESSION['user_id'] ?? 0);
+
+        $oldPassword = (string)($data['old_password'] ?? '');
+        $password = (string)($data['password'] ?? '');
+        $confirm = (string)($data['confirm'] ?? '');
+
+        // 1) First validate the old password (order matters for UX)
+        if ($oldPassword === '') {
+            return [
+                'success' => false,
+                'errors' => [
+                    'old_password' => 'missing_fields'
+                ]
+            ];
+        }
+
+        $user = $this->FindUserByFields(['key' => $userId]);
+        if (!$user || empty($user['user_password'])) {
+            return [
+                'success' => false,
+                'errors' => [
+                    'old_password' => 'password_not_set'
+                ]
+            ];
+        }
+
+        if (!password_verify($oldPassword, $user['user_password'])) {
+            return [
+                'success' => false,
+                'errors' => [
+                    'old_password' => 'old_password_incorrect'
+                ]
+            ];
+        }
+
+        // 2) Only after old password is verified, validate the new password
+        $errors = [];
+
+        if ($password === '' || $confirm === '') {
+            $errors['password'] = 'missing_fields';
+        }
+
+        if (!isset($errors['password'])) {
+            if (strlen($password) < 8) {
+                $errors['password'] = 'password_too_short';
+            }
+            elseif (!empty($this->config['password_pattern'])) {
+                $pattern = '#' . $this->config['password_pattern'] . '#u';
+                if (!preg_match($pattern, $password)) {
+                    $errors['password'] = 'password_invalid';
+                }
+            }
+            elseif ($password !== $confirm) {
+                $errors['password'] = 'password_mismatch';
+            }
+        }
+
+        if (!empty($errors)) {
+            return [
+                'success' => false,
+                'errors' => $errors
+            ];
+        }
+
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+
+        $ok = $this->UpdateUserFieldsById([
+            'user_password' => $hash,
+            'user_resetkey' => null
+        ], $userId);
+
+        if (!$ok) {
+            return [
+                'success' => false,
+                'errors' => [
+                    'password' => 'server_error'
+                ]
+            ];
         }
 
         return [
@@ -740,6 +884,7 @@ class AuthHandler
             'providers' => $enabledProviders,
             'allowRegistration' => $this->config['allow_registration'] ?? false,
             'injectResetButton' => $this->config['inject_reset_button'] ?? false,
+            'injectChangePasswordButton' => $this->config['inject_change_password_button'] ?? false,
             'allowPersistentLogin' => $this->config['allow_persistent_login'] ?? false,
             'sessionExpiryTimeoutSecs' => $this->sessionExpiryTimeoutSecs,
             'providersOnRegistration' => $this->config['providers_on_registration'] ?? false,
@@ -894,6 +1039,10 @@ class AuthHandler
         }
 
         $user['user_id'] = $user['key'];
+
+        $hasPassword = !empty($user['user_password']);
+        $user['hasPassword'] = $hasPassword;
+		$this->hasPassword = $hasPassword;
         
 
         $_SESSION['auth_token'] = $token;
@@ -933,6 +1082,7 @@ class AuthHandler
         unset($_SESSION['auth_user']);
         unset($_SESSION['user_id']);
         unset($_SESSION['HYBRIDAUTH::STORAGE']); 
+		$this->hasPassword = false;
 
         $this->InitSessionIfNeeded(true);
 
@@ -1655,7 +1805,8 @@ class AuthHandler
             [
                 '{regkey}' => $regkey,
                 '{verify_url}' => $link
-            ]
+            ],
+            'reset'
         );
 
     }
@@ -1680,7 +1831,8 @@ class AuthHandler
             [
                 '{regkey}' => $regkey,
                 '{verify_url}' => $link
-            ]
+            ],
+            'verify'
         );
 
     }
@@ -1695,13 +1847,15 @@ class AuthHandler
      * @param array $placeholders Array of placeholder => replacement (e.g. '{regkey}' => '1234')
      * @return bool True if mail sent successfully, false otherwise
      */
-    protected function SendEmailFromTemplate (string $toEmail, string $templateFile, string $subject, array $placeholders): bool 
+    protected function SendEmailFromTemplate (string $toEmail, string $templateFile, string $subject, array $placeholders, string $emailType = 'generic'): bool 
     {
 
         $cfg = $this->config['email_config'] ?? null;
 
-        if (!$cfg || empty($cfg['command'])) {
-            return false;
+        if ($this->emailProcedure === null || !$this->emailProcedureSends) {
+            if (!$cfg || empty($cfg['command'])) {
+                return false;
+            }
         }
 
         if (!file_exists($templateFile)) {
@@ -1718,13 +1872,84 @@ class AuthHandler
 
         $body = strtr($templateContent, $placeholders);
 
+        $finalSubject = addslashes($subject) . ' - ' . ($this->config['site_name'] ?? '');
+
+        // Optional external email procedure (formatter and/or sender)
+        if ($this->emailProcedure !== null) {
+
+            $action = $this->emailProcedureSends ? 'send' : 'format';
+
+            $payload = [
+                'type' => $emailType,
+                'action' => $action,
+                'to' => $toEmail,
+                'subject' => $finalSubject,
+                'subject_base' => $subject,
+                'body' => $body,
+                'template_file' => $templateFile,
+                'template' => $templateContent,
+                'placeholders' => $placeholders,
+                'site_name' => $this->config['site_name'] ?? '',
+                'site_url' => $this->siteUrl ?? null,
+                'site_script' => $this->siteScript ?? null,
+                'email_config' => $cfg,
+            ];
+
+            try {
+                $result = call_user_func($this->emailProcedure, $emailType, $payload, $action);
+            } catch (Throwable $e) {
+                return false;
+            }
+
+            // If handler is responsible for sending, accept a boolean result.
+            if ($action === 'send') {
+                if (is_bool($result)) {
+                    return $result;
+                }
+                if (is_array($result)) {
+                    if (array_key_exists('sent', $result) && is_bool($result['sent'])) {
+                        return $result['sent'];
+                    }
+                    if (array_key_exists('success', $result) && is_bool($result['success'])) {
+                        return $result['success'];
+                    }
+                    // If it returned a formatted message but did not explicitly send, fall back to internal sending.
+                    if (isset($result['subject']) && is_string($result['subject']) && $result['subject'] !== '') {
+                        $finalSubject = (string)$result['subject'];
+                    }
+                    if (isset($result['body']) && is_string($result['body'])) {
+                        $body = (string)$result['body'];
+                    }
+                }
+            }
+
+            // Formatting-only mode: allow overriding subject/body.
+            if ($action === 'format') {
+                if (is_string($result)) {
+                    $body = $result;
+                } elseif (is_array($result)) {
+                    if (isset($result['subject']) && is_string($result['subject']) && $result['subject'] !== '') {
+                        $finalSubject = (string)$result['subject'];
+                    }
+                    if (isset($result['body']) && is_string($result['body'])) {
+                        $body = (string)$result['body'];
+                    }
+                }
+            }
+
+        }
+
+        // If external handler did not send, fall back to internal sending.
+        if (!$cfg || empty($cfg['command'])) {
+            return false;
+        }
+
         $tmpFile = tempnam(sys_get_temp_dir(), 'mail_');
         file_put_contents($tmpFile, $body);
 
         $command = strtr($cfg['command'], [
             '{to}'       => $toEmail,
-            '{subject}'  => addslashes($subject) . ' - ' . $this->config['site_name'],
-            '{subject}'  => addslashes($subject) . ' - ' . $this->config['site_name'],
+            '{subject}'  => $finalSubject,
             '{bodyfile}' => $tmpFile
         ]);
 

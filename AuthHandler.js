@@ -9,6 +9,13 @@ class AuthHandler {
 
         this.userToken = token;
         this.userData = data;
+
+        // True if the account supports password authentication (not provider-only).
+        // Prefer server-provided flag; fallback for older payloads.
+        this.hasPassword = !!(data && typeof data === 'object' && data.hasPassword);
+        if (!this.hasPassword && data && typeof data === 'object' && Object.prototype.hasOwnProperty.call(data, 'user_password')) {
+            this.hasPassword = !!data.user_password;
+        }
         this.events = {
             onReady: null,
             onLogin: null,
@@ -26,6 +33,7 @@ class AuthHandler {
             allowRegistration: true,
             providersOnRegistration: false,
             injectResetButton: false,
+            injectChangePasswordButton: false,
             allowPersistentLogin: false,
             mode: 'modal',
             buttonsTarget: null,
@@ -203,6 +211,22 @@ class AuthHandler {
     }
 
     /**
+     * Renders the change password button.
+     * @returns {HTMLElement} The change password button element.
+     */
+    renderChangePasswordButton () {
+
+        const btn = this._createButton(
+            this.getText('change_password_button', 'Change password'),
+            () => this.changePassword(),
+            'authhandler-trigger-change-password-button'
+        );
+
+        return btn;
+
+    }
+
+    /**
      * Renders the logout button.
      * @returns {HTMLElement} The logout button element.
      */
@@ -240,6 +264,7 @@ class AuthHandler {
             container.innerHTML = '';
 
             if (this.userToken) {
+                if (this.config.injectChangePasswordButton) container.appendChild(this.renderChangePasswordButton());
                 container.appendChild(this.renderLogoutButton());
             } else {
                 container.appendChild(this.renderLoginButton());
@@ -321,6 +346,17 @@ class AuthHandler {
 
 
     /**
+     * Initiates password change by rendering the change password form.
+     * @returns {void}
+     */
+    changePassword () {
+
+        this._renderForm('change');
+
+    }
+
+
+    /**
      * Shows feedback (error or success message) on login or registration form.
      * Updates or resets field-level notices depending on the error map or success.
      *
@@ -348,6 +384,7 @@ class AuthHandler {
 
         let fieldIds = ['email', 'password', 'recaptcha'];
         if (formType === 'verify' || formType === 'reset2') fieldIds = ['code'];
+        if (formType === 'change') fieldIds = ['old_password', 'password'];
         if (formType === 'registration' && this.config.recaptchaType) fieldIds.push('recaptcha');
 
         fieldIds.forEach(fieldId => {
@@ -489,7 +526,7 @@ class AuthHandler {
      */
     _renderForm (type, data = null, includeLoginNotice = false) {
 
-        if (!['login', 'registration', 'verify', 'reset1', 'reset2', 'reset3'].includes(type)) {
+        if (!['login', 'registration', 'verify', 'reset1', 'reset2', 'reset3', 'change'].includes(type)) {
             console.warn('Unknown form type:', type);
             return;
         }
@@ -524,6 +561,10 @@ class AuthHandler {
 
             case 'reset3':
                 formEl = this._renderReset3Form(data);
+                break;
+
+            case 'change':
+                formEl = this._renderChangePasswordForm(data);
                 break;
 
         }
@@ -944,6 +985,47 @@ class AuthHandler {
 
     }
 
+
+    /**
+     * Renders the change password form (for logged-in users).
+     * @returns {HTMLElement}
+     */
+    _renderChangePasswordForm () {
+
+        const form = document.createElement('form');
+        form.className = 'authhandler-change-form';
+
+        const oldNotice = document.createElement('div');
+        oldNotice.className = 'authhandler-notice';
+        oldNotice.setAttribute('data-feedback-for', 'old_password');
+        oldNotice.innerHTML = `<p>${this.getText('change_old_password_notice', '')}</p>`;
+
+        const oldPassword = this._createInput('change_old_password', 'password', this.getText('change_old_password_label', 'Current password'));
+
+        const passwordNotice = document.createElement('div');
+        passwordNotice.className = 'authhandler-notice';
+        passwordNotice.setAttribute('data-feedback-for', 'password');
+        passwordNotice.innerHTML = `<p>${this.getText('change_password_notice', '')}</p>`;
+
+        const password = this._createInput('change_password', 'password', this.getText('change_new_password_label', 'New password'));
+        const confirm  = this._createInput('change_confirm', 'password', this.getText('change_confirm_password_label', 'Confirm new password'));
+
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.className = 'authhandler-form-button';
+        btn.textContent = this.getText('change_password_submit', 'Change password');
+
+        form.append(oldNotice, oldPassword, passwordNotice, password, confirm, btn);
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            this._handleChangePasswordSubmit(form);
+        });
+
+        return form;
+
+    }
+
     
     /**
      * Creates a container with provider login/registration buttons.
@@ -1070,6 +1152,11 @@ class AuthHandler {
                 case 'reset3':
                 	titleKey = 'reset_title';
 	                titleDefault = 'Reset password';
+                    break;
+
+                case 'change':
+                    titleKey = 'change_password_title';
+                    titleDefault = 'Change password';
                     break;
             
             }
@@ -1467,6 +1554,64 @@ class AuthHandler {
 
 
     /**
+     * Handles change password form submission via AJAX.
+     * @param {HTMLFormElement} form - The form being submitted
+     */
+    _handleChangePasswordSubmit (form) {
+
+        const oldInput  = form.querySelector('input[name="change_old_password"]');
+        const passInput = form.querySelector('input[name="change_password"]');
+        const confInput = form.querySelector('input[name="change_confirm"]');
+
+        const oldPassword = oldInput?.value || '';
+        const password = passInput?.value || '';
+        const confirm = confInput?.value || '';
+
+        // Client-side guard (mirrors backend): validate old password first, then new password fields.
+        if (oldPassword === '') {
+            this.showFormFeedback('change', { old_password: 'missing_fields' });
+            return;
+        }
+
+        if (password === '' || confirm === '') {
+            this.showFormFeedback('change', { password: 'missing_fields' });
+            return;
+        }
+
+        if (password !== confirm) {
+            this.showFormFeedback('change', { password: 'password_mismatch' });
+            return;
+        }
+
+        const payload = {
+            ah_action: 'change_password',
+            old_password: oldPassword,
+            password: password,
+            confirm: confirm
+        };
+
+        this._submitFormHelper(
+            form,
+            payload,
+            (response) => {
+                const modalEl = form.closest('.authhandler-modal');
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                }
+                this.showFeedback({
+                    success: true,
+                    message: this.getText('change_password_success', 'Password changed successfully.')
+                });
+            },
+            null,
+            'change'
+        );
+
+    }
+
+
+    /**
      * Adds a context-aware suggestion link to the modal (e.g. password reset or account extension).
      * @param {'reset'|'register'} type - The type of suggestion to show
      * @returns {HTMLElement|null} The suggestion container element, or null if already used
@@ -1524,6 +1669,7 @@ class AuthHandler {
     logoutUser () {
 
         this.userToken = null;
+		this.hasPassword = false;
 
     }
 

@@ -131,6 +131,10 @@
     "en": "The password must be at least 8 characters long and include upper and lower case letters, as well as a number.",
     "hu": "A jelszónak legalább 8 karakter hosszúnak kell lennie, és tartalmaznia kell kis- és nagybetűt, valamint számot."
   },
+  "password_too_short": {
+    "en": "Password must be at least 8 characters long.",
+    "hu": "A jelszónak legalább 8 karakter hosszúnak kell lennie."
+  },
   "verify_failed": {
     "en": "Verification failed. If you used the link or code from the email, it may have expired. Please register again.",
     "hu": "A megerősítés sikertelen. Ha az emailben kapott linket vagy kódot használta, akkor már lejárt a megerősítő kód. Kérjük regisztráljon újra."
@@ -254,5 +258,49 @@
   "login_persistent_label": {
     "en": "Stay signed in",
     "hu": "Maradjak bejelentkezve"
+  },
+  "change_password_title": {
+    "en": "Change password",
+    "hu": "Jelszó módosítása"
+  },
+  "change_password_button": {
+    "en": "Change password",
+    "hu": "Jelszó módosítása"
+  },
+  "change_password_submit": {
+    "en": "Change password",
+    "hu": "Jelszó mentése"
+  },
+  "change_old_password_label": {
+    "en": "Current password",
+    "hu": "Jelenlegi jelszó"
+  },
+  "change_new_password_label": {
+    "en": "New password",
+    "hu": "Új jelszó"
+  },
+  "change_confirm_password_label": {
+    "en": "Confirm new password",
+    "hu": "Új jelszó megerősítése"
+  },
+  "change_old_password_notice": {
+    "en": "Enter your current password to make changes.",
+    "hu": "Add meg az aktuális jelszavadat a módosításhoz."
+  },
+  "change_password_notice": {
+    "en": "Enter a new password for your account. The password must be at least 8 characters long and include lowercase and uppercase letters, as well as a number.",
+    "hu": "Addj meg egy új jelszót a fiókodhoz. A jelszónak legalább 8 karakter hosszúnak kell lennie, és tartalmaznia kell kis- és nagybetűt, valamint számot."
+  },
+  "change_password_success": {
+    "en": "Password changed successfully.",
+    "hu": "A jelszó sikeresen módosítva."
+  },
+  "old_password_incorrect": {
+    "en": "Current password is incorrect.",
+    "hu": "A jelenlegi jelszó nem megfelelő."
+  },
+  "not_logged_in": {
+    "en": "You need to be signed in to change your password.",
+    "hu": "A jelszó módosításához be kell jelentkezned."
   }
 }
