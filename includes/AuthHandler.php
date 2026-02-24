@@ -1098,6 +1098,7 @@ class AuthHandler
      */
     protected function HandleOAuthLogin ($providerName, $isCallback = false)
     {
+
         $providerName = ucfirst(strtolower($providerName));
 
         $config = $this->config['hybridauth_config'] ?? [];
@@ -1118,6 +1119,7 @@ class AuthHandler
             $hybridauth = new \Hybridauth\Hybridauth($config);
             $adapter = $hybridauth->authenticate($providerName);
         } catch (Exception $e) {
+            if ($_GET['error'] && $isCallback) return;
             http_response_code(500);
             exit('OAuth init failed: ' . $e->getMessage());
         }
