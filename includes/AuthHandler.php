@@ -303,7 +303,7 @@ class AuthHandler
             ];
         }
 
-        $user = $this->FindUserByFields(['user_email' => $email]);
+        $user = $this->FindUserByFields(['user_email' => $email], true);
 
         if (!$user) $errors['password'] = 'cant_login';
 
@@ -312,6 +312,8 @@ class AuthHandler
         elseif (!password_verify($password, $user['user_password'])) $errors['password'] = 'cant_login';
         
         elseif (!empty($user['user_regkey'])) $errors['password'] = 'not_verified';
+
+        elseif ($this->IsUserDisabled($user)) $errors['password'] = 'cant_login';
 
         if (!empty($errors)) {
             return [
@@ -1039,6 +1041,11 @@ class AuthHandler
             return false;
         }
 
+        if ($this->IsUserDisabled($user)) {
+            $this->LogoutUser();
+            return false;
+        }
+
         $user['user_id'] = $user['key'];
 
         $_SESSION['auth_token'] = $token;
@@ -1242,6 +1249,46 @@ class AuthHandler
         }
 
         return [ $table, $fieldset ];
+
+    }
+
+
+    /**
+     * Returns the configured logical field name used for disabled users, if any.
+     *
+     * The project can define this under sql_config.fieldset.is_disabled.
+     * If not configured, AuthHandler ignores disabled-state checks entirely.
+     *
+     * @return string|null
+     */
+    protected function GetDisabledLogicalField (): ?string
+    {
+
+        list($_table, $fieldset) = $this->GetSqlMeta();
+        $logical = $fieldset['is_disabled'] ?? null;
+
+        if (!is_string($logical) || trim($logical) === '') {
+            return null;
+        }
+
+        return 'is_disabled';
+
+    }
+
+
+    /**
+     * Checks whether the given user row is marked as disabled by project config.
+     *
+     * @param array $user User row returned by FindUserByFields()
+     * @return bool
+     */
+    protected function IsUserDisabled (array $user): bool
+    {
+
+        $disabledField = $this->GetDisabledLogicalField();
+        if ($disabledField === null) return false;
+
+        return !empty($user[$disabledField]);
 
     }
 
