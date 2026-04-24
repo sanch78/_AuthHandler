@@ -1,0 +1,73 @@
+<?php
+
+return [
+    'debug' => true,
+    'js_object' => 'authHandler',
+    'site_name' => 'Example Application',
+    'site_url' => 'https://example.com/',
+    'site_script' => 'index.php',
+    'module_path' => '/lib/_AuthHandler/',
+    'lang_code' => 'en',
+    'auto_session' => true,
+    'session_name' => 'example_auth',
+    'session_cookie_lifetime_days' => 30,
+    'session_expiry_timeout_secs' => 3600,
+    'session_cookie_path' => '/',
+    'allow_registration' => true,
+    'providers_on_registration' => true,
+    'allow_persistent_login' => true,
+    'auto_request_handler' => false,
+    'auto_init' => true,
+    'buttons_target' => '.auth-buttons',
+    'mode' => 'modal',
+    'password_pattern' => '^(?=.*\p{Ll})(?=.*\p{Lu})(?=.*\\d)[\p{L}\\d]{8,}$',
+    'on_ready' => 'applyAuthUi();',
+    'on_login' => 'applyAuthUi();',
+    'on_logout' => 'applyAuthUi(); window.location.href = "/";',
+    'on_timeout' => 'authHandler.login("timeout");',
+    'sql_config' => [
+        'driver' => 'mysql',
+        'pdo_object' => $pdo,
+        'table' => 'users',
+        'fieldset' => [
+            'key' => 'id',
+            'user_email' => 'email',
+            'user_password' => 'password_hash',
+            'user_token' => 'auth_token',
+            'user_regkey' => 'registration_key',
+            'user_resetkey' => 'reset_key',
+            'provider_name' => 'provider_name',
+            'provider_id' => 'provider_id',
+            'created_at' => 'created_at',
+            'last_login' => 'last_login_at',
+            'last_update' => 'updated_at',
+            'last_ip' => 'last_login_ip',
+        ],
+        'additional_fields' => [
+            'display_name',
+            'avatar_url',
+            'role_name',
+        ],
+    ],
+    'email_config' => [
+        'command' => '/usr/local/bin/send-auth-mail --to={to} --subject={subject} --bodyfile={bodyfile}',
+    ],
+    'hybridauth_config' => [
+        'providers' => [
+            'Google' => [
+                'enabled' => false,
+                'keys' => [
+                    'id' => 'replace-me',
+                    'secret' => 'replace-me',
+                ],
+                'scope' => 'email profile',
+                'callback' => 'https://example.com/index.php?ah_action=provider&provider=Google&callback=1',
+            ],
+        ],
+    ],
+    'recaptcha_config' => [
+        'type' => 'v2',
+        'site_key' => 'replace-me',
+        'secret_key' => 'replace-me',
+    ],
+];
