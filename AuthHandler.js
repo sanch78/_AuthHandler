@@ -283,11 +283,48 @@ class AuthHandler {
     }
 
 
+    setProviderRedirectUrl (url, persistent = false) {
+
+        if (typeof url !== 'string') {
+            this.providerRedirectUrl = null;
+            this.providerRedirectPersistent = false;
+            return;
+        }
+
+        url = url.trim();
+
+        if (!url || !url.startsWith('/') || url.startsWith('//')) {
+            this.providerRedirectUrl = null;
+            this.providerRedirectPersistent = false;
+            return;
+        }
+
+        this.providerRedirectUrl = url;
+        this.providerRedirectPersistent = persistent;
+        this.providerRedirectGetQuery = null;
+
+    }
+
+
     setProviderRedirectGetQuery (query, persistent = false) {
 
-        this.providerRedirectGetQuery = query;
+        if (typeof query !== 'string') {
+            this.providerRedirectGetQuery = null;
+            this.providerRedirectPersistent = false;
+            return;
+        }
 
+        query = query.trim().replace(/^[?&]+/, '');
+
+        if (!query) {
+            this.providerRedirectGetQuery = null;
+            this.providerRedirectPersistent = false;
+            return;
+        }
+
+        this.providerRedirectGetQuery = query;
         this.providerRedirectPersistent = persistent;
+        this.providerRedirectUrl = null;
 
     }
 
@@ -612,17 +649,9 @@ class AuthHandler {
 
         if (this.config.providerOnlyAuth) {
             const providers = this._renderProviderButtons('login_providers_notice', 'You can log in with one of the following providers:');
-            const notice = document.createElement('div');
-            notice.className = 'authhandler-notice';
-            notice.setAttribute('data-feedback-for', 'password');
-            notice.setAttribute('data-persistent', '1');
-            notice.style.display = 'block';
-            notice.innerHTML = `<p>${this.getText('provider_only_login_notice', 'Sign in is available only through the configured providers below.')}</p>`;
+            if (!providers) return null;
 
-            form.appendChild(notice);
-            if (providers) {
-                form.appendChild(providers);
-            }
+            form.appendChild(providers);
 
             return form;
         }
@@ -1093,7 +1122,10 @@ class AuthHandler {
             pbtn.append(iconSpan, textSpan);
             pbtn.onclick = () => {
                 let href = this.siteUrl + this.siteScript + `?ah_action=provider&provider=${provider}`;
-                if (typeof this.providerRedirectGetQuery === 'string' && this.providerRedirectGetQuery.length > 0) {
+                if (typeof this.providerRedirectUrl === 'string' && this.providerRedirectUrl.length > 0) {
+                    href += `&redirect_url=` + encodeURIComponent(this.providerRedirectUrl);
+                    if (!this.providerRedirectPersistent) this.providerRedirectUrl = null;
+                } else if (typeof this.providerRedirectGetQuery === 'string' && this.providerRedirectGetQuery.length > 0) {
                     href += `&redirect_query=` + encodeURIComponent(this.providerRedirectGetQuery);
                     if (!this.providerRedirectPersistent) this.providerRedirectGetQuery = null;
                 }

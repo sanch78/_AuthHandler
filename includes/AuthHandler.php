@@ -18,6 +18,12 @@ class AuthHandler
     protected $modulePath;
     protected $siteUrl;
     protected $siteScript;
+    protected $sessionExpiryTimeoutSecs = 3600;
+    protected $recaptcha = [];
+    protected $recaptchaType = null;
+    protected $recaptchaSiteKey = null;
+    protected $recaptchaSecret = null;
+    protected $recaptchaEnabled = false;
     protected $lastActionResult = null;
     protected $lastActionData = null;
 
@@ -293,7 +299,7 @@ class AuthHandler
     protected function IsProviderOnlyAuthEnabled (): bool
     {
 
-        return !empty($this->config['provider_only_auth']);
+        return !empty($this->config['provider_only_auth']) || !empty($this->config['provider_only_login']);
 
     }
 
@@ -355,6 +361,121 @@ class AuthHandler
             ],
             'message' => $this->texts['provider_only_auth'] ?? 'This project accepts sign-in only through configured providers.'
         ];
+
+    }
+
+
+    /**
+     * Normalizes a legacy redirect query string.
+     *
+     * @param mixed $query
+     * @return string|null
+     */
+    protected function NormalizeRedirectQuery ($query): ?string
+    {
+
+        if (!is_string($query)) {
+            return null;
+        }
+
+        $query = trim($query);
+        if ($query === '') {
+            return null;
+        }
+
+        return ltrim($query, "?&");
+
+    }
+
+
+    /**
+     * Normalizes a post-login redirect path and keeps it local-only.
+     *
+     * @param mixed $redirectUrl
+     * @return string|null
+     */
+    protected function NormalizeRedirectUrl ($redirectUrl): ?string
+    {
+
+        if (!is_string($redirectUrl)) {
+            return null;
+        }
+
+        $redirectUrl = trim($redirectUrl);
+        if ($redirectUrl === '' || strpos($redirectUrl, '/') !== 0 || strpos($redirectUrl, '//') === 0) {
+            return null;
+        }
+
+        $parts = parse_url($redirectUrl);
+        if ($parts === false) {
+            return null;
+        }
+
+        if (isset($parts['scheme']) || isset($parts['host']) || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
+            return null;
+        }
+
+        return $redirectUrl;
+
+    }
+
+
+    /**
+     * Stores an optional post-login redirect target from the current request.
+     *
+     * Supports both the legacy redirect_query format and the newer local-only
+     * redirect_url path format.
+     *
+     * @return void
+     */
+    protected function StorePostLoginRedirectFromRequest (): void
+    {
+
+        $redirectUrl = $this->NormalizeRedirectUrl(isset($_GET['redirect_url']) ? (string)$_GET['redirect_url'] : null);
+        if ($redirectUrl !== null) {
+            $_SESSION['redirect_url'] = $redirectUrl;
+            unset($_SESSION['redirect_query']);
+            return;
+        }
+
+        $redirectQuery = $this->NormalizeRedirectQuery(isset($_GET['redirect_query']) ? (string)$_GET['redirect_query'] : null);
+        if ($redirectQuery !== null) {
+            $_SESSION['redirect_query'] = $redirectQuery;
+            unset($_SESSION['redirect_url']);
+            return;
+        }
+
+        unset($_SESSION['redirect_url']);
+
+    }
+
+
+    /**
+     * Builds the final post-login redirect URL.
+     *
+     * @return string
+     */
+    protected function GetPostLoginRedirectUrl (): string
+    {
+
+        $baseUrl = $this->siteUrl ?: '/';
+
+        $redirectUrl = $this->NormalizeRedirectUrl(isset($_SESSION['redirect_url']) ? $_SESSION['redirect_url'] : null);
+        if ($redirectUrl !== null) {
+            unset($_SESSION['redirect_url']);
+            unset($_SESSION['redirect_query']);
+            return rtrim($baseUrl, '/') . $redirectUrl;
+        }
+
+        $redirectQuery = $this->NormalizeRedirectQuery(isset($_SESSION['redirect_query']) ? $_SESSION['redirect_query'] : null);
+        unset($_SESSION['redirect_query']);
+        unset($_SESSION['redirect_url']);
+
+        if ($redirectQuery === null) {
+            return $baseUrl;
+        }
+
+        return $baseUrl . (strpos($baseUrl, '?') === false ? '?' : '&') . $redirectQuery;
 
     }
 
@@ -986,9 +1107,9 @@ class AuthHandler
         $return = '';
 
         $return .= "window.{$this->jsObject} = new AuthHandler({";
-        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
+        $return .= "config: " . json_encode($config, JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : 0)) . ", ";
         $return .= "token: '" . ($_SESSION['auth_token'] ?? '') . "', ";
-        $return .= "data: " . json_encode($this->userData ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : '')) . ", ";
+        $return .= "data: " . json_encode($this->userData ?? 'null', JSON_UNESCAPED_SLASHES|JSON_NUMERIC_CHECK|JSON_UNESCAPED_UNICODE|($this->config['debug'] ? JSON_PRETTY_PRINT : 0)) . ", ";
         $return .= "events: {";
         $eventParts = [];
         foreach ($map as $ev) {
@@ -1107,7 +1228,7 @@ class AuthHandler
      * @param string $token The authentication token
      * @return bool True if login succeeded, false otherwise
      */
-    public function LoginUser (string $token = null): bool
+    public function LoginUser (?string $token = null): bool
     {
 
         if (!empty($_SESSION['auth_token']) && $token === null) $token = $_SESSION['auth_token'];
@@ -1195,18 +1316,27 @@ class AuthHandler
             exit('Provider not enabled.');
         }
 
-        if (!empty($_GET['redirect_query'])) $_SESSION['redirect_query'] = $_GET['redirect_query'];
+        $this->StorePostLoginRedirectFromRequest();
 
-        if (!$config['providers'][$providerName]['callback']) {
+        if (empty($config['providers'][$providerName]['callback'])) {
             http_response_code(500);
             exit('Missing callback URL for provider.');
         }
 
+        if (!extension_loaded('curl')) {
+            http_response_code(500);
+            exit('OAuth requires the PHP cURL extension.');
+        }
+
         try {
             $hybridauth = new \Hybridauth\Hybridauth($config);
+            $this->hybridInstance = $hybridauth;
             $adapter = $hybridauth->authenticate($providerName);
         } catch (Exception $e) {
-            if ($_GET['error'] && $isCallback) return;
+            if (!empty($_GET['error']) && $isCallback) {
+                header('Location: ' . $this->GetPostLoginRedirectUrl());
+                exit;
+            }
             http_response_code(500);
             exit('OAuth init failed: ' . $e->getMessage());
         }
@@ -1305,15 +1435,7 @@ class AuthHandler
 
         $this->LoginUser($token);
 
-        $redirect = $this->config['site_url'];
-        if (!empty($_SESSION['redirect_query'])) {
-            $query = $_SESSION['redirect_query'];
-            $query = ltrim($query, '?&');
-            $redirect .= (strpos($redirect, '?') === false ? '?' : '&') . $query;
-            unset($_SESSION['redirect_query']);
-        }
-
-        header('Location: ' . $redirect);
+        header('Location: ' . $this->GetPostLoginRedirectUrl());
         exit;
 
     }
@@ -1335,9 +1457,33 @@ class AuthHandler
 
 
     /**
-     * Downloads and stores an OAuth profile image when the feature is enabled.
+     * Returns the configured public path prefix for saved OAuth profile images.
      *
-        * Returns the filesystem path that should be persisted for the configured field.
+     * @return string|null
+     */
+    protected function GetOAuthProfileImagePublicPath (): ?string
+    {
+
+        $publicPath = $this->config['provider_profile_image']['public_path'] ?? null;
+
+        if (!is_string($publicPath)) {
+            return null;
+        }
+
+        $publicPath = trim($publicPath);
+        if ($publicPath === '' || strpos($publicPath, '/') !== 0 || strpos($publicPath, '//') === 0) {
+            return null;
+        }
+
+        return rtrim($publicPath, '/');
+
+    }
+
+
+    /**
+      * Downloads and stores an OAuth profile image when the feature is enabled.
+      *
+      * Returns the configured public path when available, otherwise the filesystem path.
      *
      * @param string $providerName
      * @param string $providerId
@@ -1397,6 +1543,11 @@ class AuthHandler
             return null;
         }
 
+        $publicPath = $this->GetOAuthProfileImagePublicPath();
+        if ($publicPath !== null) {
+            return $publicPath . '/' . $fileName;
+        }
+
         return $targetPath;
 
     }
@@ -1413,6 +1564,12 @@ class AuthHandler
     {
 
         if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            return null;
+        }
+
+        $parts = parse_url($url);
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        if (!in_array($scheme, ['http', 'https'], true)) {
             return null;
         }
 
@@ -1897,7 +2054,7 @@ class AuthHandler
      * @param int|null $userId The user's ID (optional, defaults to $this->userId)
      * @return bool True on success, false on failure
      */
-    protected function UpdateUserFieldsById (array $fields, int $userId = null): bool
+    protected function UpdateUserFieldsById (array $fields, ?int $userId = null): bool
     {
         
         list($table, $fs) = $this->GetSqlMeta();
@@ -2007,7 +2164,7 @@ class AuthHandler
      * @param int|null $userId The user's ID to delete, or null for current user
      * @return bool True on success, false otherwise
      */
-    public function DeleteUser (int $userId = null): bool
+    public function DeleteUser (?int $userId = null): bool
     {
         // Resolve user id
         if ($userId === null) {
