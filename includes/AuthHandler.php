@@ -209,6 +209,10 @@ class AuthHandler
         $action = $data['ah_action'];
         unset($data['ah_action']);
 
+        if ($this->IsProviderOnlyActionBlocked($action)) {
+            $result = $this->GetProviderOnlyBlockedResponse($action);
+        } else {
+
         switch ($action) {
 
             case 'provider':
@@ -268,6 +272,7 @@ class AuthHandler
 
 
         }
+        }
 
         if ($isAjax) {
             header('Content-Type: application/json');
@@ -276,6 +281,80 @@ class AuthHandler
         }
 
         $this->lastActionResult = $result ?? null;
+
+    }
+
+
+    /**
+     * Returns whether provider-only auth mode is enabled.
+     *
+     * @return bool
+     */
+    protected function IsProviderOnlyAuthEnabled (): bool
+    {
+
+        return !empty($this->config['provider_only_auth']);
+
+    }
+
+
+    /**
+     * Returns whether a password-based action must be blocked in provider-only mode.
+     *
+     * @param string $action
+     * @return bool
+     */
+    protected function IsProviderOnlyActionBlocked (string $action): bool
+    {
+
+        if (!$this->IsProviderOnlyAuthEnabled()) {
+            return false;
+        }
+
+        return in_array($action, [
+            'login',
+            'register',
+            'verify',
+            'remote_verify',
+            'change_password',
+            'reset1',
+            'reset2',
+            'reset3',
+            'remote_reset'
+        ], true);
+
+    }
+
+
+    /**
+     * Returns a consistent error payload for blocked password-based actions.
+     *
+     * @param string $action
+     * @return array
+     */
+    protected function GetProviderOnlyBlockedResponse (string $action): array
+    {
+
+        $fieldMap = [
+            'login' => 'password',
+            'register' => 'email',
+            'verify' => 'code',
+            'remote_verify' => 'code',
+            'change_password' => 'password',
+            'reset1' => 'email',
+            'reset2' => 'code',
+            'reset3' => 'password',
+            'remote_reset' => 'code',
+        ];
+        $field = $fieldMap[$action] ?? 'email';
+
+        return [
+            'success' => false,
+            'errors' => [
+                $field => 'provider_only_auth'
+            ],
+            'message' => $this->texts['provider_only_auth'] ?? 'This project accepts sign-in only through configured providers.'
+        ];
 
     }
 
@@ -885,12 +964,13 @@ class AuthHandler
             'langCode' => $this->config['lang_code'] ?? 'en',
             'langData' => $this->textsAll,
             'providers' => $enabledProviders,
-            'allowRegistration' => $this->config['allow_registration'] ?? false,
-            'injectResetButton' => $this->config['inject_reset_button'] ?? false,
-            'injectChangePasswordButton' => $this->config['inject_change_password_button'] ?? false,
+            'allowRegistration' => $this->IsProviderOnlyAuthEnabled() ? false : ($this->config['allow_registration'] ?? false),
+            'injectResetButton' => $this->IsProviderOnlyAuthEnabled() ? false : ($this->config['inject_reset_button'] ?? false),
+            'injectChangePasswordButton' => $this->IsProviderOnlyAuthEnabled() ? false : ($this->config['inject_change_password_button'] ?? false),
             'allowPersistentLogin' => $this->config['allow_persistent_login'] ?? false,
             'sessionExpiryTimeoutSecs' => $this->sessionExpiryTimeoutSecs,
-            'providersOnRegistration' => $this->config['providers_on_registration'] ?? false,
+            'providersOnRegistration' => $this->IsProviderOnlyAuthEnabled() ? false : ($this->config['providers_on_registration'] ?? false),
+            'providerOnlyAuth' => $this->IsProviderOnlyAuthEnabled(),
             'mode' => $this->config['mode'] ?? 'modal',
             'buttonsTarget' => $this->config['buttons_target'] ?? null,
             'autoIninit' => $autoInit,
@@ -1144,6 +1224,12 @@ class AuthHandler
 
         $email = $userProfile->email ?? null;
         $providerId = $userProfile->identifier ?? null;
+        $profileImageField = $this->GetOAuthProfileImageField();
+        $profileImagePath = $this->StoreOAuthProfileImage(
+            $providerName,
+            (string)($providerId ?? ''),
+            $userProfile->photoURL ?? null
+        );
 
         if (!$providerId) {
             http_response_code(400);
@@ -1159,10 +1245,14 @@ class AuthHandler
 
         // User found by OAuth provider - update last login and proceed
         if ($user) {           
-            $this->UpdateUserFieldsById([
+            $fieldsToUpdate = [
                 'last_login' => date('Y-m-d H:i:s'),
                 'last_ip' => $this->GetClientIp()
-            ], $user['key']);
+            ];
+            if ($profileImageField && $profileImagePath !== null) {
+                $fieldsToUpdate[$profileImageField] = $profileImagePath;
+            }
+            $this->UpdateUserFieldsById($fieldsToUpdate, $user['key']);
             $token = $user['user_token'];
 
         // User not found by OAuth provider - check if email exists
@@ -1173,10 +1263,14 @@ class AuthHandler
             if ($existing) {
                 
                 $this->LinkOAuthProvider($existing['key'], $providerName, $providerId);
-                $this->UpdateUserFieldsById([
+                $fieldsToUpdate = [
                     'last_login' => date('Y-m-d H:i:s'),
                     'last_ip' => $this->GetClientIp()
-                ], $existing['key']);
+                ];
+                if ($profileImageField && $profileImagePath !== null) {
+                    $fieldsToUpdate[$profileImageField] = $profileImagePath;
+                }
+                $this->UpdateUserFieldsById($fieldsToUpdate, $existing['key']);
 
                 $token = $existing['user_token'];
                 if (!$token) {
@@ -1203,6 +1297,9 @@ class AuthHandler
 
                 // Link OAuth provider to new user
                 $this->LinkOAuthProvider($userId, $providerName, $providerId);
+                if ($profileImageField && $profileImagePath !== null) {
+                    $this->UpdateUserFieldsById([$profileImageField => $profileImagePath], $userId);
+                }
             }
         }
 
@@ -1218,6 +1315,140 @@ class AuthHandler
 
         header('Location: ' . $redirect);
         exit;
+
+    }
+
+
+    /**
+     * Returns the configured logical field used to persist saved OAuth profile image paths.
+     *
+     * @return string|null
+     */
+    protected function GetOAuthProfileImageField (): ?string
+    {
+
+        $field = $this->config['provider_profile_image']['field'] ?? 'avatar_path';
+
+        return is_string($field) && $field !== '' ? $field : null;
+
+    }
+
+
+    /**
+     * Downloads and stores an OAuth profile image when the feature is enabled.
+     *
+        * Returns the filesystem path that should be persisted for the configured field.
+     *
+     * @param string $providerName
+     * @param string $providerId
+     * @param string|null $photoUrl
+     * @return string|null
+     */
+    protected function StoreOAuthProfileImage (string $providerName, string $providerId, ?string $photoUrl): ?string
+    {
+
+        $config = $this->config['provider_profile_image'] ?? [];
+
+        if (empty($config['enabled']) || empty($config['directory']) || empty($photoUrl) || empty($providerId)) {
+            return null;
+        }
+
+        $directory = rtrim((string)$config['directory'], '/');
+
+        if ($directory === '') {
+            return null;
+        }
+
+        if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
+            return null;
+        }
+
+        $imageData = $this->DownloadOAuthProfileImage($photoUrl, (int)($config['timeout'] ?? 10));
+        if ($imageData === null) {
+            return null;
+        }
+
+        $imageInfo = @getimagesizefromstring($imageData);
+        if (empty($imageInfo['mime'])) {
+            return null;
+        }
+
+        $extensionMap = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+        ];
+        $extension = $extensionMap[strtolower($imageInfo['mime'])] ?? null;
+        if ($extension === null) {
+            return null;
+        }
+
+        $safeProvider = preg_replace('/[^a-z0-9_-]+/i', '-', strtolower($providerName));
+        $safeIdentifier = preg_replace('/[^a-z0-9_-]+/i', '-', strtolower($providerId));
+        $fileName = trim($safeProvider . '-' . $safeIdentifier, '-');
+        if ($fileName === '') {
+            return null;
+        }
+        $fileName .= '.' . $extension;
+
+        $targetPath = $directory . '/' . $fileName;
+        if (file_put_contents($targetPath, $imageData) === false) {
+            return null;
+        }
+
+        return $targetPath;
+
+    }
+
+
+    /**
+     * Downloads a remote OAuth profile image with curl when available.
+     *
+     * @param string $url
+     * @param int $timeout
+     * @return string|null
+     */
+    protected function DownloadOAuthProfileImage (string $url, int $timeout = 10): ?string
+    {
+
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            return null;
+        }
+
+        if (function_exists('curl_init')) {
+            $curl = curl_init($url);
+            curl_setopt_array($curl, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_CONNECTTIMEOUT => $timeout,
+                CURLOPT_TIMEOUT => $timeout,
+                CURLOPT_USERAGENT => 'AuthHandler OAuth Profile Image Downloader',
+            ]);
+            $body = curl_exec($curl);
+            $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+            curl_close($curl);
+
+            if ($body !== false && $status >= 200 && $status < 300) {
+                return $body;
+            }
+        }
+
+        if (!ini_get('allow_url_fopen')) {
+            return null;
+        }
+
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => $timeout,
+                'follow_location' => 1,
+                'user_agent' => 'AuthHandler OAuth Profile Image Downloader',
+            ]
+        ]);
+        $body = @file_get_contents($url, false, $context);
+
+        return $body !== false ? $body : null;
 
     }
 

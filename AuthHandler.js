@@ -24,6 +24,7 @@ class AuthHandler {
             langData: null,
             autoIninit: false,
             providers: [],
+            providerOnlyAuth: false,
             allowRegistration: true,
             providersOnRegistration: false,
             injectResetButton: false,
@@ -258,12 +259,12 @@ class AuthHandler {
             container.innerHTML = '';
 
             if (this.userToken) {
-                if (this.config.injectChangePasswordButton) container.appendChild(this.renderChangePasswordButton());
+                if (!this.config.providerOnlyAuth && this.config.injectChangePasswordButton) container.appendChild(this.renderChangePasswordButton());
                 container.appendChild(this.renderLogoutButton());
             } else {
                 container.appendChild(this.renderLoginButton());
-                if (this.config.injectResetButton) container.appendChild(this.renderResetButton());
-                if (this.config.allowRegistration) container.appendChild(this.renderRegisterButton());
+                if (!this.config.providerOnlyAuth && this.config.injectResetButton) container.appendChild(this.renderResetButton());
+                if (!this.config.providerOnlyAuth && this.config.allowRegistration) container.appendChild(this.renderRegisterButton());
             }
         });
 
@@ -563,6 +564,16 @@ class AuthHandler {
 
         }
 
+        if (!formEl) {
+            if (this.config.providerOnlyAuth) {
+                this.showFeedback({
+                    success: false,
+                    errors: { email: 'provider_only_auth' }
+                });
+            }
+            return;
+        }
+
         if (this.config.mode === 'inline') {
             const containers = this._resolveTarget(this.config.target);
             if (containers) {
@@ -598,6 +609,23 @@ class AuthHandler {
 
         const form = document.createElement('form');
         form.className = 'authhandler-login-form';
+
+        if (this.config.providerOnlyAuth) {
+            const providers = this._renderProviderButtons('login_providers_notice', 'You can log in with one of the following providers:');
+            const notice = document.createElement('div');
+            notice.className = 'authhandler-notice';
+            notice.setAttribute('data-feedback-for', 'password');
+            notice.setAttribute('data-persistent', '1');
+            notice.style.display = 'block';
+            notice.innerHTML = `<p>${this.getText('provider_only_login_notice', 'Sign in is available only through the configured providers below.')}</p>`;
+
+            form.appendChild(notice);
+            if (providers) {
+                form.appendChild(providers);
+            }
+
+            return form;
+        }
 
         const emailNotice = document.createElement('div');
         emailNotice.className = 'authhandler-notice';
@@ -697,6 +725,7 @@ class AuthHandler {
      */
     _renderRegistrationForm (data = null) {
 
+        if (this.config.providerOnlyAuth) return null;
         if (!this.config.allowRegistration) return null;
 
         const form = document.createElement('form');
@@ -833,6 +862,8 @@ class AuthHandler {
      */
     _renderReset1Form () {
 
+        if (this.config.providerOnlyAuth) return null;
+
         const form = document.createElement('form');
         form.className = 'authhandler-reset1-form';
 
@@ -869,6 +900,8 @@ class AuthHandler {
      * @returns {HTMLElement|null} The form element or null if not applicable
      */
     _renderReset2Form (data = null) {
+
+        if (this.config.providerOnlyAuth) return null;
 
         if (!data?.email) return null;
 
@@ -941,6 +974,8 @@ class AuthHandler {
      */
     _renderReset3Form (data = null) {
 
+        if (this.config.providerOnlyAuth) return null;
+
         if (!data?.email || !data?.code) return null;
 
         const form = document.createElement('form');
@@ -985,6 +1020,8 @@ class AuthHandler {
      * @returns {HTMLElement}
      */
     _renderChangePasswordForm () {
+
+        if (this.config.providerOnlyAuth) return null;
 
         const form = document.createElement('form');
         form.className = 'authhandler-change-form';

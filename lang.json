@@ -147,6 +147,14 @@
     "en": "This account was created with an external login. Please log in using the same method, or register with an email address (password) to use password/email login as well.",
     "hu": "Ez a fiók külső bejelentkezéssel lett létrehozva. Jelentkezz be ugyanazzal a módszerrel, vagy regisztrálj email címmel (jelszóval) és használhatod a jelszó/email bejelentkezést is." 
   },
+  "provider_only_auth": {
+    "en": "This project accepts sign-in only through configured providers.",
+    "hu": "Ebben a projektben csak a beállított külső szolgáltatókon keresztül lehet bejelentkezni."
+  },
+  "provider_only_login_notice": {
+    "en": "Sign in is available only through the configured providers below.",
+    "hu": "Bejelentkezni csak az alább beállított külső szolgáltatókon keresztül lehet."
+  },
   "registration_failed": {
     "en": "Registration failed. Please try again.",
     "hu": "A regisztráció sikertelen. Kérjük, próbáld újra."

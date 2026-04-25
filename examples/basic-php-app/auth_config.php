@@ -14,6 +14,7 @@ return [
     'session_expiry_timeout_secs' => 3600,
     'session_cookie_path' => '/',
     'allow_registration' => true,
+    'provider_only_auth' => false,
     'providers_on_registration' => true,
     'allow_persistent_login' => true,
     'auto_request_handler' => false,
@@ -45,7 +46,7 @@ return [
         ],
         'additional_fields' => [
             'display_name',
-            'avatar_url',
+            'avatar_path',
             'role_name',
         ],
     ],
@@ -64,6 +65,12 @@ return [
                 'callback' => 'https://example.com/index.php?ah_action=provider&provider=Google&callback=1',
             ],
         ],
+    ],
+    'provider_profile_image' => [
+        'enabled' => false,
+        'directory' => __DIR__ . '/uploads/provider-avatars',
+        'field' => 'avatar_path',
+        'timeout' => 10,
     ],
     'recaptcha_config' => [
         'type' => 'v2',

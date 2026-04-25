@@ -70,10 +70,12 @@ Your `auth_config` should normally define:
 - `module_path`
 - session behavior
 - registration and provider flags
+- `provider_only_auth` if only OAuth/provider sign-in should be allowed
 - password policy
 - SQL mapping in `sql_config`
 - email sending in `email_config`
 - provider settings in `hybridauth_config` if OAuth is enabled
+- optional provider avatar storage in `provider_profile_image` if local profile-image saving is desired
 - reCAPTCHA settings in `recaptcha_config` if bot protection is enabled
 
 ## SQL mapping pattern
@@ -93,6 +95,12 @@ That means your integration must map logical names such as:
 to your actual user table columns.
 
 If the frontend needs extra user profile fields, add them to `sql_config.additional_fields`.
+
+If you want AuthHandler to persist provider profile images locally, expose a destination field such as `avatar_path` through `sql_config.additional_fields`, then configure `provider_profile_image.enabled` and `provider_profile_image.directory`.
+
+AuthHandler only stores the filesystem path. Rendering that image for a user is intentionally left to the consuming project, which can map the saved path to a public URL, image controller, CDN path, or any other project-specific delivery mechanism.
+
+If you enable `provider_only_auth`, make sure at least one provider is enabled in `hybridauth_config.providers`, because the built-in email/password flows will be unavailable.
 
 ## Email integration pattern
 

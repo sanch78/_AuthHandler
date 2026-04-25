@@ -103,6 +103,7 @@ Typical consumer-side pattern:
 ### UI and lifecycle settings
 
 - `allow_registration`: allow or disable registration
+- `provider_only_auth`: disable password-based login, registration, verification, reset, and change-password flows while keeping provider login enabled
 - `providers_on_registration`: show providers on the registration screen
 - `auto_request_handler`: automatically call `HandleRequest()` in the constructor
 - `auto_init`: automatically initialize the frontend class
@@ -147,6 +148,17 @@ The default model is command-driven, but consumers can override sending behavior
 - application keys
 - requested scopes
 - callback URLs
+
+If `provider_only_auth` is enabled, provider login remains active while built-in password-based flows are blocked in both the backend request handler and the bundled frontend UI.
+
+Optional `provider_profile_image` controls whether AuthHandler also downloads and stores the provider avatar locally during OAuth login.
+
+Supported keys:
+
+- `enabled`: opt-in switch for avatar download and persistence
+- `directory`: server filesystem directory where images are stored
+- `field`: logical user field to update, default `avatar_path`
+- `timeout`: download timeout in seconds
 
 ### reCAPTCHA settings
 
@@ -307,6 +319,10 @@ Typical sequence:
 Important behavior:
 
 Provider login is a full-page redirect flow, not an AJAX popup flow.
+
+If local avatar storage is enabled, AuthHandler uses the provider profile `photoURL` and writes the saved filesystem path into the configured user field. Provider-side permission to expose that image is still controlled by each provider's configured scopes in `hybridauth_config`.
+
+AuthHandler does not generate a browser-facing URL for the saved file. The consuming project is responsible for deciding how a stored path is exposed or transformed for rendering.
 
 ## Frontend UI model
 
