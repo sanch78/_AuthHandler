@@ -2419,9 +2419,10 @@ class AuthHandler
             urlencode($secret) . '&response=' . urlencode($token)
         );
 
-        $_SESSION['recaptcha_token'] = $token;
-
         $result = json_decode($response, true);
+        if (!empty($result['success'])) {
+            $_SESSION['recaptcha_token'] = $token;
+        }
 
         return !empty($result['success']);
 
