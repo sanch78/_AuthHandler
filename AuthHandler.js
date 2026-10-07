@@ -624,22 +624,14 @@ class AuthHandler {
 
             this._showModal(type, formEl);
 
-        }
-
-        const recaptchaContainer = formEl.querySelector('#recaptcha-container');
-        if (recaptchaContainer) {
-            const renderCaptcha = () => {
-                if (!recaptchaContainer.isConnected) return;
-                if (typeof window.grecaptcha?.render !== 'function') {
-                    setTimeout(renderCaptcha, 100);
-                    return;
-                }
-                window.grecaptcha.render(recaptchaContainer, {
+            const recaptchaContainer = document.getElementById('recaptcha-container');
+            if (recaptchaContainer) {
+                grecaptcha.render('recaptcha-container', {
                     sitekey: this.config.recaptchaSiteKey,
                     theme: 'light'
                 });
-            };
-            renderCaptcha();
+            }
+
         }
 
     }
