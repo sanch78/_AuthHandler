@@ -95,6 +95,10 @@
     "en": "Sign in with Facebook",
     "hu": "Bejelentkezés Facebook-kal"
   },
+  "registration_with_provider_linkedin": {
+    "en": "Sign in with LinkedIn",
+    "hu": "Bejelentkezés LinkedInnel"
+  },
   "cant_login": {
     "en": "Cannot login with the provided credentials.",
     "hu": "A megadott adatokkal nem lehet bejelentkezni. "

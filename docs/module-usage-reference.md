@@ -151,6 +151,40 @@ The default model is command-driven, but consumers can override sending behavior
 
 If `provider_only_auth` is enabled, provider login remains active while built-in password-based flows are blocked in both the backend request handler and the bundled frontend UI.
 
+#### LinkedIn OpenID Connect
+
+Use the canonical provider name `Linkedin`, matching AuthHandler's existing
+name normalization. Unless an adapter is explicitly configured, AuthHandler
+selects the bundled `Hybridauth\Provider\LinkedInOpenID` adapter and defaults
+to `openid profile email`. This uses `/v2/userinfo` instead of the retired
+`r_liteprofile`/`r_emailaddress` API. Enabled LinkedIn buttons have bundled
+English/Hungarian captions and a local icon.
+
+```php
+'Linkedin' => [
+    'enabled' => true,
+    'keys' => ['id' => $linkedinClientId, 'secret' => $linkedinClientSecret],
+    'callback' => 'https://example.com/index.php?ah_action=provider&provider=Linkedin&callback=1',
+],
+```
+
+Enable **Sign In with LinkedIn using OpenID Connect** in the LinkedIn
+application's Products tab and register the consumer's HTTPS callback under
+Auth. Keep the client secret in the consumer's private configuration.
+See the [LinkedIn sign-in documentation](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2).
+
+Explicit adapter and scope settings remain consumer-owned. An integration
+that still requires the legacy adapter must explicitly select
+`Hybridauth\Provider\LinkedIn` and its scopes; existing provider identifiers
+must not be assumed to survive a change between legacy and OpenID adapters.
+Google, Facebook and other providers keep their existing configuration.
+
+LinkedIn may omit `email` and `email_verified`. The OpenID adapter exposes
+those fields when present; the module's existing missing-email fallback
+still applies. Consumers decide whether missing or unverified e-mail is
+acceptable for account access. Enabling LinkedIn does not grant application
+roles, memberships or permissions.
+
 Optional `provider_profile_image` controls whether AuthHandler also downloads and stores the provider avatar locally during OAuth login.
 
 Supported keys:

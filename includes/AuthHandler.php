@@ -54,6 +54,15 @@ class AuthHandler
             throw new Exception("AuthHandler requires a config array or a valid path to a config file");
         }
 
+        // Use the current LinkedIn sign-in product unless the consumer explicitly selects an adapter.
+        if (isset($this->config['hybridauth_config']['providers']['Linkedin'])
+            && !isset($this->config['hybridauth_config']['providers']['Linkedin']['adapter'])) {
+            $this->config['hybridauth_config']['providers']['Linkedin'] += [
+                'adapter' => \Hybridauth\Provider\LinkedInOpenID::class,
+                'scope' => 'openid profile email',
+            ];
+        }
+
         $this->InitSessionIfNeeded();
 
         foreach (['on_ready', 'on_login', 'on_logout', 'on_timeout'] as $key) {

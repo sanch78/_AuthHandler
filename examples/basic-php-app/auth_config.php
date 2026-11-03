@@ -64,6 +64,15 @@ return [
                 'scope' => 'email profile',
                 'callback' => 'https://example.com/index.php?ah_action=provider&provider=Google&callback=1',
             ],
+            'Linkedin' => [
+                'enabled' => false,
+                'keys' => [
+                    'id' => 'replace-me',
+                    'secret' => 'replace-me',
+                ],
+                'scope' => 'openid profile email',
+                'callback' => 'https://example.com/index.php?ah_action=provider&provider=Linkedin&callback=1',
+            ],
         ],
     ],
     'provider_profile_image' => [
