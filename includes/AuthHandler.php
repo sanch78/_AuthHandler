@@ -1362,6 +1362,12 @@ class AuthHandler
         }
 
         $email = $userProfile->email ?? null;
+        if ($adapter instanceof \Hybridauth\Provider\LinkedInOpenID
+            && (!filter_var($email, FILTER_VALIDATE_EMAIL) || ($userProfile->emailVerified ?? null) !== true)) {
+            http_response_code(403);
+            exit('LinkedIn did not return a verified email address.');
+        }
+
         $providerId = $userProfile->identifier ?? null;
         $profileImageField = $this->GetOAuthProfileImageField();
         $profileImagePath = $this->StoreOAuthProfileImage(

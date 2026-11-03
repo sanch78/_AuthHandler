@@ -179,11 +179,13 @@ that still requires the legacy adapter must explicitly select
 must not be assumed to survive a change between legacy and OpenID adapters.
 Google, Facebook and other providers keep their existing configuration.
 
-LinkedIn may omit `email` and `email_verified`. The OpenID adapter exposes
-those fields when present; the module's existing missing-email fallback
-still applies. Consumers decide whether missing or unverified e-mail is
-acceptable for account access. Enabling LinkedIn does not grant application
-roles, memberships or permissions.
+LinkedIn may omit `email` and `email_verified`. For the OpenID adapter,
+AuthHandler requires a valid e-mail address with `email_verified: true` and
+otherwise returns HTTP 403 before linking or creating a user. This protects
+consumers that match their existing accounts by e-mail and do not receive
+the provider's verification claim. The explicit legacy adapter and other
+providers keep their existing policy. Enabling LinkedIn does not grant
+application roles, memberships or permissions.
 
 Optional `provider_profile_image` controls whether AuthHandler also downloads and stores the provider avatar locally during OAuth login.
 
